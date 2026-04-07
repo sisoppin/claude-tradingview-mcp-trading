@@ -34,7 +34,8 @@ Here's what it does when you run it:
 | 4b | Checks trade limits — daily cap and max trade size |
 | 5 | Runs the safety check — every entry condition checked |
 | 6 | Executes the trade via BitGet if all conditions pass |
-| 7 | Saves a log of every decision made |
+| 7 | Logs the trade to `trades.csv` — date, price, fees, net amount (tax-ready) |
+| 8 | Saves full decision log to `safety-check-log.json` |
 
 If anything fails the safety check, it stops and tells you exactly which condition failed and the actual values. No trade goes through unless everything lines up.
 
@@ -177,8 +178,32 @@ The example `rules.json` uses the van de Poppe + Tone Vays BTC strategy. To buil
 | `prompts/01-extract-strategy.md` | Build rules.json from trader transcripts |
 | `prompts/02-one-shot-trade.md` | **The one-shot prompt — paste this to trade** |
 | `safety-check-log.json` | Auto-generated log of every trade decision |
+| `trades.csv` | Tax-ready trade record — auto-written on every execution |
 | `docs/setup-windows.md` | Windows-specific MCP setup |
 | `docs/setup-linux.md` | Linux-specific MCP setup |
+
+---
+
+## Tax Accounting
+
+Every trade the bot places is automatically written to `trades.csv` with the columns your accountant needs:
+
+| Column | Description |
+|--------|-------------|
+| Date | ISO date of the trade |
+| Time | UTC time |
+| Exchange | BitGet |
+| Symbol | e.g. BTCUSDT |
+| Side | Buy / Sell |
+| Quantity | Units traded |
+| Price | Price per unit at execution |
+| Total USD | Gross trade value |
+| Fee (est.) | Estimated exchange fee |
+| Net Amount | Total USD minus fee |
+| Order ID | Exchange reference |
+| Mode | Paper / Live |
+
+At tax time: open the file, hand it to your accountant, or import it directly into your accounting software. Nothing to reconstruct.
 
 ---
 
@@ -188,6 +213,7 @@ The example `rules.json` uses the van de Poppe + Tone Vays BTC strategy. To buil
 - Position sizing uses your risk rules — default max 1-2% of portfolio per trade
 - Stop loss is placed automatically at the level defined in your rules
 - Every decision is logged with the exact values that triggered it
+- Every executed trade is recorded in `trades.csv` for accounting
 
 **This is not financial advice.** Build your strategy properly. Run the backtest. Paper trade before going live. Never put in more than you can afford to lose.
 

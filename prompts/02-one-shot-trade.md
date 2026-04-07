@@ -261,7 +261,29 @@ change PAPER_TRADING from 'true' to 'false'."
 
 ---
 
-## STEP 6 — Watch it run
+## STEP 6 — Tax accounting setup
+
+Tell the user: "Every trade your bot places is automatically recorded in a file called
+`trades.csv`. You don't need to do anything — it writes itself every time a trade executes.
+
+Here's what it records for each trade:
+- Date and time
+- Exchange, symbol, side (buy/sell)
+- Quantity, price, total value
+- Estimated fee and net amount
+- Order ID, paper vs live mode
+
+At tax time, open the file and hand it to your accountant. Or import it directly into
+your accounting software. Nothing to reconstruct.
+
+The file doesn't exist yet because you haven't made any trades. As soon as the first
+trade executes — paper or live — it will appear here automatically."
+
+Show them the path: `./trades.csv` will appear in the project directory.
+
+---
+
+## STEP 8 — Watch it run
 
 Run the bot once right now so they can see it working:
 
