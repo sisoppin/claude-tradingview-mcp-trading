@@ -140,10 +140,13 @@ export function orbStrategy(candles) {
 
   const sessionCandles = candles.filter((c) => c.time >= istMidnight.getTime());
 
+  // Extract price early for all return paths
+  const price = candles[candles.length - 1].close;
+
   if (sessionCandles.length < 3) {
     return {
       signal: "HOLD",
-      indicators: { orbHigh: null, orbLow: null, avgOrbVolume: null, vwap: null, rsi14: null },
+      indicators: { price, orbHigh: null, orbLow: null, avgOrbVolume: null, vwap: null, rsi14: null },
       rules: [{ label: "Opening range not yet formed (need 3 candles)", pass: false }],
     };
   }
@@ -167,7 +170,6 @@ export function orbStrategy(candles) {
 
   const lastCandle = candles[candles.length - 1];
   const { close, volume } = lastCandle;
-  const price = close;
 
   // Time window: 9:30–11:30 AM IST = 04:00–06:00 UTC
   const t = new Date(lastCandle.time);
