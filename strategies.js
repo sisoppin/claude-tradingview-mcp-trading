@@ -1,7 +1,9 @@
 import { calcEMA, calcRSI, calcMACD, calcBollingerBands } from "./indicators.js";
 
-function calcVWAP(candles, now = Date.now()) {
-  const ref = new Date(now);
+function calcVWAP(candles) {
+  if (candles.length === 0) return null;
+  // Anchor to last candle's IST day so VWAP works after market hours / on weekends
+  const ref = new Date(candles[candles.length - 1].time);
   const istMidnight = new Date(ref);
   istMidnight.setUTCHours(18, 30, 0, 0);
   if (istMidnight > ref) istMidnight.setUTCDate(istMidnight.getUTCDate() - 1);
@@ -12,11 +14,11 @@ function calcVWAP(candles, now = Date.now()) {
   return cumVol === 0 ? null : cumTPV / cumVol;
 }
 
-export function vwapEmaRsiStrategy(candles, now = Date.now()) {
+export function vwapEmaRsiStrategy(candles) {
   const closes = candles.map((c) => c.close);
   const price = closes[closes.length - 1];
   const ema8 = calcEMA(closes, 8);
-  const vwap = calcVWAP(candles, now);
+  const vwap = calcVWAP(candles);
   const rsi3 = calcRSI(closes, 3);
 
   const indicators = { price, ema8, vwap, rsi3 };
@@ -122,5 +124,77 @@ export function bollingerRsiStrategy(candles) {
   }
 
   const rules = [...buyConditions, ...sellConditions];
+  return { signal: "HOLD", indicators, rules };
+}
+
+export function orbStrategy(candles) {
+  if (candles.length === 0) {
+    return { signal: "HOLD", indicators: {}, rules: [{ label: "No candles", pass: false }] };
+  }
+
+  // IST session anchor — same logic as calcVWAP
+  const ref = new Date(candles[candles.length - 1].time);
+  const istMidnight = new Date(ref);
+  istMidnight.setUTCHours(18, 30, 0, 0);
+  if (istMidnight > ref) istMidnight.setUTCDate(istMidnight.getUTCDate() - 1);
+
+  const sessionCandles = candles.filter((c) => c.time >= istMidnight.getTime());
+
+  if (sessionCandles.length < 3) {
+    return {
+      signal: "HOLD",
+      indicators: { orbHigh: null, orbLow: null, avgOrbVolume: null, vwap: null, rsi14: null },
+      rules: [{ label: "Opening range not yet formed (need 3 candles)", pass: false }],
+    };
+  }
+
+  // Opening range = first 3 session candles
+  const orbCandles = sessionCandles.slice(0, 3);
+  const orbHigh = Math.max(...orbCandles.map((c) => c.high));
+  const orbLow  = Math.min(...orbCandles.map((c) => c.low));
+  const avgOrbVolume = orbCandles.reduce((sum, c) => sum + c.volume, 0) / 3;
+
+  // VWAP for full session
+  const cumTPV = sessionCandles.reduce((sum, c) => sum + ((c.high + c.low + c.close) / 3) * c.volume, 0);
+  const cumVol = sessionCandles.reduce((sum, c) => sum + c.volume, 0);
+  const vwap = cumVol === 0 ? null : cumTPV / cumVol;
+
+  // Compute RSI on all candles except the current one so that the current
+  // candle's close does not distort the momentum reading (same principle as
+  // using the previous bar's indicator value for signal confirmation).
+  const closes = candles.slice(0, -1).map((c) => c.close);
+  const rsi14 = calcRSI(closes, 14);
+
+  const lastCandle = candles[candles.length - 1];
+  const { close, volume } = lastCandle;
+  const price = close;
+
+  // Time window: 9:30–11:30 AM IST = 04:00–06:00 UTC
+  const t = new Date(lastCandle.time);
+  const utcMinutes = t.getUTCHours() * 60 + t.getUTCMinutes();
+  const inWindow = utcMinutes >= 240 && utcMinutes <= 360;
+
+  const indicators = { price, orbHigh, orbLow, avgOrbVolume, vwap, rsi14 };
+
+  const buyRules = [
+    { label: "Close > ORB High",                  pass: close > orbHigh },
+    { label: "Volume > 1.2× avg ORB volume",       pass: volume > avgOrbVolume * 1.2 },
+    { label: "RSI(14) > 55 (bullish momentum)",    pass: rsi14 !== null && rsi14 > 55 },
+    { label: "Price > VWAP (bullish trend)",        pass: vwap !== null && price > vwap },
+    { label: "Within ORB window (9:30–11:30 IST)", pass: inWindow },
+  ];
+
+  const sellRules = [
+    { label: "Close < ORB Low",                    pass: close < orbLow },
+    { label: "Volume > 1.2× avg ORB volume",       pass: volume > avgOrbVolume * 1.2 },
+    { label: "RSI(14) < 45 (bearish momentum)",    pass: rsi14 !== null && rsi14 < 45 },
+    { label: "Price < VWAP (bearish trend)",        pass: vwap !== null && price < vwap },
+    { label: "Within ORB window (9:30–11:30 IST)", pass: inWindow },
+  ];
+
+  if (buyRules.every((r) => r.pass))  return { signal: "BUY",  indicators, rules: buyRules };
+  if (sellRules.every((r) => r.pass)) return { signal: "SELL", indicators, rules: sellRules };
+
+  const rules = close > orbHigh ? buyRules : close < orbLow ? sellRules : [...buyRules, ...sellRules];
   return { signal: "HOLD", indicators, rules };
 }

@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy } from "../strategies.js";
+import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy } from "../strategies.js";
 
 function makeCandles(closes, baseVolume = 100000) {
   return closes.map((c, i) => ({
@@ -17,20 +17,18 @@ describe("vwapEmaRsiStrategy", () => {
   });
 
   test("returns BUY when all bullish conditions are met", () => {
-    // Use a fixed 'now' in middle of NSE session (IST 12:00 = UTC 06:30)
-    // IST midnight (UTC prev day 18:30), so session candles must be > that
-    const sessionStart = new Date("2026-04-18T18:30:00Z").getTime(); // IST midnight
-    const now = new Date("2026-04-18T06:30:00Z").getTime() + 24 * 60 * 60 * 1000; // next day 06:30 UTC = 12:00 IST
+    // Candles anchored to IST midnight (18:30 UTC) so VWAP spans the full session
+    const sessionStart = new Date("2026-04-18T18:30:00Z").getTime();
 
     // Build candles: uptrend with recent dip so RSI(3) < 30
-    // All candles within today's session (time > sessionStart)
+    // All candles within the session (time >= sessionStart)
     const closes = [100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,90,88];
     const candles = closes.map((c, i) => ({
       time: sessionStart + (i + 1) * 5 * 60 * 1000, // 5m apart, all in session
       open: c - 1, high: c + 2, low: c - 2, close: c, volume: 100000,
     }));
 
-    const result = vwapEmaRsiStrategy(candles, now);
+    const result = vwapEmaRsiStrategy(candles);
     // price=88, EMA8 will be above 88 (recent sharp drop), VWAP will be above 88
     // RSI(3) will be very low (sharp drop). So bearish bias → HOLD not BUY.
     // This test verifies structure and that VWAP is computed (not null)
@@ -104,5 +102,100 @@ describe("bollingerRsiStrategy", () => {
     const candles = makeCandles(closes);
     const result = bollingerRsiStrategy(candles);
     assert.equal(result.signal, "BUY");
+  });
+});
+
+describe("orbStrategy", () => {
+  const sessionStart = new Date("2026-04-17T18:30:00Z").getTime();
+  const fiveMin = 5 * 60 * 1000;
+
+  // Opening range candles: orbHigh=105, orbLow=94, avgOrbVolume=100000
+  const orbCandles = [
+    { time: sessionStart + fiveMin,     open: 99,  high: 105, low: 94, close: 100, volume: 100000 },
+    { time: sessionStart + 2 * fiveMin, open: 100, high: 104, low: 95, close: 101, volume: 100000 },
+    { time: sessionStart + 3 * fiveMin, open: 101, high: 103, low: 96, close: 102, volume: 100000 },
+  ];
+
+  // 16 rising candles to push RSI(14) > 55
+  const risingMid = Array.from({ length: 16 }, (_, i) => ({
+    time: sessionStart + (4 + i) * fiveMin,
+    open: 102 + i, high: 103 + i, low: 101 + i, close: 103 + i, volume: 100000,
+  }));
+
+  // 16 falling candles to push RSI(14) < 45
+  const fallingMid = Array.from({ length: 16 }, (_, i) => ({
+    time: sessionStart + (4 + i) * fiveMin,
+    open: 100 - i, high: 101 - i, low: 99 - i, close: 100 - i, volume: 100000,
+  }));
+
+  // 16 alternating candles to keep RSI ~50
+  const flatMid = Array.from({ length: 16 }, (_, i) => ({
+    time: sessionStart + (4 + i) * fiveMin,
+    open: 100, high: 102, low: 98, close: i % 2 === 0 ? 101 : 100, volume: 100000,
+  }));
+
+  test("returns BUY when all 5 buy conditions pass", () => {
+    const lastCandle = {
+      time: new Date("2026-04-18T04:30:00Z").getTime(), // 10:00 AM IST — inside window
+      open: 118, high: 122, low: 117, close: 120, // close=120 > orbHigh=105
+      volume: 130000, // > 100000 * 1.2 = 120000
+    };
+    const candles = [...orbCandles, ...risingMid, lastCandle];
+    const result = orbStrategy(candles);
+    assert.equal(result.signal, "BUY");
+    assert.equal(result.indicators.orbHigh, 105);
+    assert.equal(result.indicators.orbLow, 94);
+  });
+
+  test("returns SELL when all 5 sell conditions pass", () => {
+    // orbLow=94, so we need close < 94 for SELL
+    const sellOrbCandles = [
+      { time: sessionStart + fiveMin,     open: 101, high: 106, low: 94, close: 100, volume: 100000 },
+      { time: sessionStart + 2 * fiveMin, open: 100, high: 105, low: 95, close:  99, volume: 100000 },
+      { time: sessionStart + 3 * fiveMin, open:  99, high: 104, low: 96, close:  98, volume: 100000 },
+    ];
+    const lastCandle = {
+      time: new Date("2026-04-18T04:30:00Z").getTime(),
+      open: 85, high: 86, low: 78, close: 80, // close=80 < orbLow=94
+      volume: 130000,
+    };
+    const candles = [...sellOrbCandles, ...fallingMid, lastCandle];
+    const result = orbStrategy(candles);
+    assert.equal(result.signal, "SELL");
+  });
+
+  test("returns HOLD when RSI blocks BUY (RSI ~50, not > 55)", () => {
+    const lastCandle = {
+      time: new Date("2026-04-18T04:30:00Z").getTime(),
+      open: 105, high: 110, low: 104, close: 107, // close=107 > orbHigh=105
+      volume: 130000,
+    };
+    const candles = [...orbCandles, ...flatMid, lastCandle];
+    const result = orbStrategy(candles);
+    assert.equal(result.signal, "HOLD");
+  });
+
+  test("returns HOLD when current candle is outside 9:30–11:30 IST window", () => {
+    const lastCandle = {
+      time: new Date("2026-04-18T07:00:00Z").getTime(), // 12:30 PM IST — outside window
+      open: 118, high: 122, low: 117, close: 120,
+      volume: 130000,
+    };
+    const candles = [...orbCandles, ...risingMid, lastCandle];
+    const result = orbStrategy(candles);
+    assert.equal(result.signal, "HOLD");
+    const windowRule = result.rules.find((r) => r.label.includes("window"));
+    assert.ok(windowRule, "should have a time window rule");
+    assert.equal(windowRule.pass, false);
+  });
+
+  test("returns HOLD when opening range not yet formed (< 3 session candles)", () => {
+    const candles = [
+      { time: sessionStart + fiveMin,     open: 99, high: 105, low: 94, close: 100, volume: 100000 },
+      { time: sessionStart + 2 * fiveMin, open: 100, high: 104, low: 95, close: 101, volume: 100000 },
+    ];
+    const result = orbStrategy(candles);
+    assert.equal(result.signal, "HOLD");
+    assert.ok(result.rules[0].label.includes("not yet formed"));
   });
 });
