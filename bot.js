@@ -182,10 +182,6 @@ function checkTradeLimits(log) {
   }
 
   console.log(`✅ Trades today: ${todayCount}/${CONFIG.maxTradesPerDay} — within limit`);
-
-  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeUSD);
-  console.log(`✅ Trade size: ${tradeSize.toFixed(2)} — within max ${CONFIG.maxTradeSizeUSD}`);
-
   return true;
 }
 
@@ -218,7 +214,7 @@ function writeTradeCsv(logEntry) {
     notes = `Failed: ${failed}`;
   } else if (logEntry.paperTrading) {
     side = (logEntry.side || "BUY").toUpperCase();
-    quantity = (logEntry.tradeSize / logEntry.price).toFixed(6);
+    quantity = logEntry.orderQuantity != null ? String(logEntry.orderQuantity) : (logEntry.tradeSize / logEntry.price).toFixed(6);
     total = logEntry.tradeSize.toFixed(2);
     fee = (logEntry.tradeSize * 0.001).toFixed(4);
     netAmount = (logEntry.tradeSize - parseFloat(fee)).toFixed(2);
@@ -227,7 +223,7 @@ function writeTradeCsv(logEntry) {
     notes = "All conditions met";
   } else {
     side = (logEntry.side || "BUY").toUpperCase();
-    quantity = (logEntry.tradeSize / logEntry.price).toFixed(6);
+    quantity = logEntry.orderQuantity != null ? String(logEntry.orderQuantity) : (logEntry.tradeSize / logEntry.price).toFixed(6);
     total = logEntry.tradeSize.toFixed(2);
     fee = (logEntry.tradeSize * 0.001).toFixed(4);
     netAmount = (logEntry.tradeSize - parseFloat(fee)).toFixed(2);
@@ -360,6 +356,7 @@ async function run() {
     lotSize,
     orderPlaced: false,
     orderId: null,
+    orderQuantity: null,
     paperTrading: CONFIG.paperTrading,
     dataSource: source,
     limits: {
@@ -381,6 +378,7 @@ async function run() {
       console.log(`   (Set PAPER_TRADING=false in .env to place real orders)`);
       logEntry.orderPlaced = true;
       logEntry.orderId = `PAPER-${Date.now()}`;
+      logEntry.orderQuantity = Math.floor(logEntry.tradeSize / logEntry.price);
     } else {
       console.log(`\n🔴 PLACING LIVE ORDER — ₹${tradeSize.toFixed(2)} ${side.toUpperCase()} ${CONFIG.tradingsymbol}`);
       try {
@@ -394,6 +392,7 @@ async function run() {
         });
         logEntry.orderPlaced = true;
         logEntry.orderId = order.orderId;
+        logEntry.orderQuantity = order.quantity;
         console.log(`✅ ORDER PLACED — ${order.orderId} (qty: ${order.quantity})`);
       } catch (err) {
         console.log(`❌ ORDER FAILED — ${err.message}`);
