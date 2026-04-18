@@ -49,7 +49,7 @@ async function resolveInstrument(accessToken, tradingsymbol, exchange) {
   const lotIdx = headers.indexOf("lot_size");
 
   for (const line of lines.slice(1)) {
-    const cols = line.split(",");
+    const cols = line.split(",").map((c) => c.replace(/^"|"$/g, "").trim());
     if (cols[symbolIdx] === tradingsymbol) {
       return {
         instrumentToken: parseInt(cols[tokenIdx]),
@@ -66,7 +66,10 @@ async function fetchCandlesKite(accessToken, instrumentToken, timeframe) {
 
   const to = new Date();
   const from = new Date(to.getTime() - daysBack * 24 * 60 * 60 * 1000);
-  const fmt = (d) => d.toISOString().slice(0, 19).replace("T", " ");
+  const fmt = (d) => {
+    const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+    return ist.toISOString().slice(0, 19).replace("T", " ");
+  };
 
   const url = `${KITE_BASE}/instruments/historical/${instrumentToken}/${interval}?from=${encodeURIComponent(fmt(from))}&to=${encodeURIComponent(fmt(to))}`;
   const res = await fetch(url, {
@@ -76,6 +79,7 @@ async function fetchCandlesKite(accessToken, instrumentToken, timeframe) {
     },
   });
 
+  if (!res.ok) throw new Error(`Kite historical data failed: HTTP ${res.status}`);
   const data = await res.json();
   if (data.status !== "success") throw new Error(`Kite historical data failed: ${data.message}`);
 

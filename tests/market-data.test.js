@@ -61,7 +61,7 @@ describe("fetchCandles", () => {
     process.env.KITE_API_KEY = "test-key";
     t.mock.method(global, "fetch", async (url) => {
       if (url.includes("/instruments/NSE")) return { ok: true, text: async () => INSTRUMENTS_CSV };
-      return { json: async () => KITE_CANDLES_RESPONSE };
+      return { ok: true, json: async () => KITE_CANDLES_RESPONSE };
     });
 
     const result = await fetchCandles("valid-token", "RELIANCE", "NSE", "equity", "5m");
