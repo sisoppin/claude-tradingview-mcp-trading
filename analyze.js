@@ -34,6 +34,8 @@ function signalIcon(signal) {
   return "🟡";
 }
 
+// Threshold is 2 (not majority) because ORB is time-windowed (active 9:30–11:30 IST only);
+// requiring >50% agreement would suppress signals for most of the trading day.
 function combinedSignal(results) {
   const buys  = results.filter((r) => r.signal === "BUY").length;
   const sells = results.filter((r) => r.signal === "SELL").length;
@@ -60,6 +62,7 @@ function printTerminal(candles, results, combined, now) {
   console.log(`  BB Upper      : ${fmt(s3.indicators.upper)} | Lower: ${fmt(s3.indicators.lower)}`);
   console.log(`  ORB High      : ${fmt(s4.indicators.orbHigh)}`);
   console.log(`  ORB Low       : ${fmt(s4.indicators.orbLow)}`);
+  console.log(`  ORB RSI(14)   : ${s4.indicators.rsi14 != null ? s4.indicators.rsi14.toFixed(2) : "N/A"}`);
   console.log("\n─────────────────────────────────────────────────────────────");
   console.log("  Strategy                       Signal     Rules");
   console.log("─────────────────────────────────────────────────────────────");
@@ -143,6 +146,7 @@ function buildHtml(candles, results, combined, now) {
     <div class="ind-box"><div class="ind-label">MACD Signal</div><div class="ind-value">${s2.indicators.signal != null ? s2.indicators.signal.toFixed(4) : "N/A"}</div></div>
     <div class="ind-box"><div class="ind-label">ORB High</div><div class="ind-value">${fmt(s4.indicators.orbHigh)}</div></div>
     <div class="ind-box"><div class="ind-label">ORB Low</div><div class="ind-value">${fmt(s4.indicators.orbLow)}</div></div>
+    <div class="ind-box"><div class="ind-label">ORB RSI(14)</div><div class="ind-value">${s4.indicators.rsi14 != null ? s4.indicators.rsi14.toFixed(2) : "N/A"}</div></div>
   </div>
 </div>
 <div class="card">
