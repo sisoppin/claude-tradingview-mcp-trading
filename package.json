@@ -1,15 +1,16 @@
 {
   "name": "claude-tradingview-mcp-trading",
   "version": "1.0.0",
-  "description": "Automated trading bot — Claude + TradingView strategy + BitGet execution",
+  "description": "Automated trading bot — Claude + TradingView strategy + Zerodha execution",
+  "type": "module",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
-    "dev": "node bot.js"
+    "dev": "node bot.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "node-fetch": "^3.3.2"
+    "dotenv": "^16.4.5"
   },
   "engines": {
     "node": ">=18.0.0"

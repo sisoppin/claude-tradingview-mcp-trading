@@ -1,4 +1,5 @@
 .env
-*.log
+kite-token.json
 safety-check-log.json
 node_modules/
+*.test.json
