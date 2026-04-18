@@ -6,6 +6,8 @@ describe("placeZerodhaOrder", () => {
   test("calculates correct equity quantity and places order", async (t) => {
     process.env.KITE_API_KEY = "test-key";
     t.mock.method(global, "fetch", async () => ({
+      ok: true,
+      text: async () => "",
       json: async () => ({ status: "success", data: { order_id: "EQ001" } }),
     }));
 
@@ -41,6 +43,8 @@ describe("placeZerodhaOrder", () => {
   test("calculates correct F&O quantity as lot multiple", async (t) => {
     process.env.KITE_API_KEY = "test-key";
     t.mock.method(global, "fetch", async () => ({
+      ok: true,
+      text: async () => "",
       json: async () => ({ status: "success", data: { order_id: "FNO001" } }),
     }));
 
@@ -76,6 +80,8 @@ describe("placeZerodhaOrder", () => {
   test("throws on Kite order failure response", async (t) => {
     process.env.KITE_API_KEY = "test-key";
     t.mock.method(global, "fetch", async () => ({
+      ok: true,
+      text: async () => "",
       json: async () => ({ status: "error", message: "Insufficient funds" }),
     }));
 
@@ -97,7 +103,7 @@ describe("placeZerodhaOrder", () => {
     let capturedBody = "";
     t.mock.method(global, "fetch", async (_url, opts) => {
       capturedBody = opts.body.toString();
-      return { json: async () => ({ status: "success", data: { order_id: "SELL001" } }) };
+      return { ok: true, text: async () => "", json: async () => ({ status: "success", data: { order_id: "SELL001" } }) };
     });
 
     await placeZerodhaOrder("token", {

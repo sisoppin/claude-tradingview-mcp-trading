@@ -14,6 +14,10 @@ export async function placeZerodhaOrder(
   accessToken,
   { tradingsymbol, exchange, side, sizeUSD, price, lotSize = 1 }
 ) {
+  if (!price || price <= 0 || !isFinite(price)) {
+    throw new Error(`Invalid price ${price} for ${tradingsymbol}`);
+  }
+
   let quantity;
 
   if (exchange === "NFO") {
@@ -47,6 +51,11 @@ export async function placeZerodhaOrder(
     headers: kiteHeaders(accessToken),
     body,
   });
+
+  if (!res.ok) {
+    const body2 = await res.text().catch(() => "");
+    throw new Error(`Kite order request failed with HTTP ${res.status}: ${body2.slice(0, 200)}`);
+  }
 
   const data = await res.json();
   if (data.status !== "success") throw new Error(`Kite order failed: ${data.message}`);
