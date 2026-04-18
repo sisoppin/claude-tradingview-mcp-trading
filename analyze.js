@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { writeFileSync } from "fs";
-import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy } from "./strategies.js";
+import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy } from "./strategies.js";
 
 const SYMBOL = process.env.TRADINGSYMBOL || "RELIANCE";
 const EXCHANGE = process.env.EXCHANGE || "BSE";
@@ -17,7 +17,8 @@ async function fetchCandles() {
   const result = json.chart?.result?.[0];
   if (!result) throw new Error(`No data returned for ${TICKER}`);
   const timestamps = result.timestamp;
-  const q = result.indicators.quote[0];
+  const q = result.indicators?.quote?.[0];
+  if (!timestamps || !q) throw new Error(`No OHLCV data returned for ${TICKER}`);
   return timestamps
     .map((t, i) => ({
       time: t * 1000,
@@ -43,7 +44,7 @@ function combinedSignal(results) {
 
 function printTerminal(candles, results, combined, now) {
   const price  = candles[candles.length - 1].close;
-  const [s1, s2, s3] = results;
+  const [s1, s2, s3, s4] = results;
   const fmt = (v, prefix = "₹") => v != null ? `${prefix}${Number(v).toFixed(2)}` : "N/A";
 
   console.log("\n═══════════════════════════════════════════════════════════");
@@ -57,6 +58,8 @@ function printTerminal(candles, results, combined, now) {
   console.log(`  RSI(14)       : ${s3.indicators.rsi14 != null ? s3.indicators.rsi14.toFixed(2) : "N/A"}`);
   console.log(`  MACD          : ${s2.indicators.macd != null ? s2.indicators.macd.toFixed(4) : "N/A"} | Signal: ${s2.indicators.signal != null ? s2.indicators.signal.toFixed(4) : "N/A"}`);
   console.log(`  BB Upper      : ${fmt(s3.indicators.upper)} | Lower: ${fmt(s3.indicators.lower)}`);
+  console.log(`  ORB High      : ${fmt(s4.indicators.orbHigh)}`);
+  console.log(`  ORB Low       : ${fmt(s4.indicators.orbLow)}`);
   console.log("\n─────────────────────────────────────────────────────────────");
   console.log("  Strategy                       Signal     Rules");
   console.log("─────────────────────────────────────────────────────────────");
@@ -65,6 +68,7 @@ function printTerminal(candles, results, combined, now) {
     ["VWAP + EMA(8) + RSI(3)", s1],
     ["MACD Crossover",         s2],
     ["Bollinger Bands + RSI",  s3],
+    ["ORB 15min + RSI(14)",    s4],
   ];
   for (const [name, r] of rows) {
     const met = r.rules.filter((x) => x.pass).length;
@@ -78,7 +82,7 @@ function printTerminal(candles, results, combined, now) {
 
 function buildHtml(candles, results, combined, now) {
   const price = candles[candles.length - 1].close;
-  const [s1, s2, s3] = results;
+  const [s1, s2, s3, s4] = results;
   const fmt = (v, p = "₹") => v != null ? `${p}${Number(v).toFixed(2)}` : "N/A";
   const colorMap = { BUY: "#16a34a", SELL: "#dc2626", HOLD: "#ca8a04" };
   const bgMap    = { BUY: "#f0fdf4", SELL: "#fef2f2", HOLD: "#fefce8" };
@@ -87,6 +91,7 @@ function buildHtml(candles, results, combined, now) {
     ["VWAP + EMA(8) + RSI(3)", s1],
     ["MACD Crossover",         s2],
     ["Bollinger Bands + RSI",  s3],
+    ["ORB 15min + RSI(14)",    s4],
   ].map(([name, r]) => {
     const met = r.rules.filter((x) => x.pass).length;
     const rulesHtml = r.rules.map((rule) =>
@@ -136,6 +141,8 @@ function buildHtml(candles, results, combined, now) {
     <div class="ind-box"><div class="ind-label">BB Upper</div><div class="ind-value">${fmt(s3.indicators.upper)}</div></div>
     <div class="ind-box"><div class="ind-label">BB Lower</div><div class="ind-value">${fmt(s3.indicators.lower)}</div></div>
     <div class="ind-box"><div class="ind-label">MACD Signal</div><div class="ind-value">${s2.indicators.signal != null ? s2.indicators.signal.toFixed(4) : "N/A"}</div></div>
+    <div class="ind-box"><div class="ind-label">ORB High</div><div class="ind-value">${fmt(s4.indicators.orbHigh)}</div></div>
+    <div class="ind-box"><div class="ind-label">ORB Low</div><div class="ind-value">${fmt(s4.indicators.orbLow)}</div></div>
   </div>
 </div>
 <div class="card">
@@ -162,7 +169,8 @@ async function run() {
   const s1 = vwapEmaRsiStrategy(candles);
   const s2 = macdStrategy(candles);
   const s3 = bollingerRsiStrategy(candles);
-  const results = [s1, s2, s3];
+  const s4 = orbStrategy(candles);
+  const results = [s1, s2, s3, s4];
   const combined = combinedSignal(results);
   const now = new Date().toISOString();
 
