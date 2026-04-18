@@ -11,7 +11,7 @@ Add a 15-minute Opening Range Breakout strategy to `strategies.js` as a fourth s
 
 ## Opening Range Definition
 
-- **Session anchor:** same IST midnight anchor used by `calcVWAP` (18:30 UTC previous day)
+- **Session anchor:** IST midnight (18:30 UTC previous day) — same anchor used by `calcVWAP`
 - **Opening range candles:** first 3 candles of the session (9:15–9:30 AM IST on 5m timeframe)
 - **ORB High:** `max(high)` of those 3 candles
 - **ORB Low:** `min(low)` of those 3 candles
@@ -21,25 +21,35 @@ If fewer than 3 session candles exist, return `HOLD` with rule `"Opening range n
 
 ## Signal Logic
 
-All 3 rules must pass simultaneously for a signal. The current candle is the last candle in the dataset.
+All 5 rules must pass simultaneously for a signal. The current candle is the last candle in the dataset.
 
-### BUY — price breakout above range with trend confirmation
+### BUY — breakout above range
 
 | Rule | Condition |
 |------|-----------|
 | Close above ORB High | `close > orbHigh` |
-| Volume above avg ORB volume | `volume > avgOrbVolume` |
-| RSI(14) bullish | `RSI(14) > 50` |
+| Volume confirms breakout | `volume > avgOrbVolume × 1.2` |
+| RSI(14) bullish momentum | `RSI(14) > 55` |
+| Market trend bullish | `price > VWAP` |
+| Within time window | candle time between 9:30–11:30 AM IST |
 
-### SELL — price breakdown below range with trend confirmation
+### SELL — breakdown below range
 
 | Rule | Condition |
 |------|-----------|
 | Close below ORB Low | `close < orbLow` |
-| Volume above avg ORB volume | `volume > avgOrbVolume` |
-| RSI(14) bearish | `RSI(14) < 50` |
+| Volume confirms breakdown | `volume > avgOrbVolume × 1.2` |
+| RSI(14) bearish momentum | `RSI(14) < 45` |
+| Market trend bearish | `price < VWAP` |
+| Within time window | candle time between 9:30–11:30 AM IST |
 
 If neither set passes fully → `HOLD`, showing all rules with pass/fail status.
+
+## Time Window
+
+- **Window:** 9:30 AM – 11:30 AM IST (04:00 – 06:00 UTC)
+- Signals outside this window return `HOLD` with `"Outside ORB signal window (9:30–11:30 IST)"` as a failing rule
+- VWAP is computed using the same IST session anchor
 
 ## Implementation
 
@@ -47,30 +57,35 @@ If neither set passes fully → `HOLD`, showing all rules with pass/fail status.
 
 New export `orbStrategy(candles)`:
 
-1. Compute IST session start (same anchor as `calcVWAP`)
+1. Compute IST session start (18:30 UTC anchor)
 2. Filter to session candles; take first 3 as opening range
 3. Compute `orbHigh`, `orbLow`, `avgOrbVolume`
-4. Get last candle (current), compute `RSI(14)` via `calcRSI`
-5. Evaluate BUY rules, then SELL rules
-6. Return `{ signal, indicators, rules }` — same shape as other strategies
+4. Compute `VWAP` via existing `calcVWAP` logic
+5. Compute `RSI(14)` via `calcRSI`
+6. Get last candle — `close`, `volume`, `time`
+7. Determine if current candle time is within 9:30–11:30 AM IST (04:00–06:00 UTC)
+8. Evaluate all 5 BUY rules, then all 5 SELL rules
+9. Return `{ signal, indicators, rules }` — same shape as other strategies
 
-Indicators returned: `{ price, orbHigh, orbLow, avgOrbVolume, rsi14 }`
+Indicators returned: `{ price, orbHigh, orbLow, avgOrbVolume, vwap, rsi14 }`
 
 ### `analyze.js`
 
 - Import `orbStrategy`
 - Add as 4th entry in the strategies array with label `"ORB 15min + RSI(14)"`
-- Output row and combined signal count already handle N strategies dynamically
+- Output row and combined signal count handle N strategies dynamically — no other changes needed
 
 ### `tests/strategies.test.js`
 
-Four test cases:
-1. **BUY** — close > orbHigh, volume spike, RSI(14) > 50
-2. **SELL** — close < orbLow, volume spike, RSI(14) < 50
-3. **HOLD** — close above ORB high but RSI(14) < 50 (trend filter blocks)
-4. **Insufficient data** — fewer than 3 session candles → HOLD with message
+Five test cases:
+1. **BUY** — close > orbHigh, volume > 1.2× avg, RSI > 55, price > VWAP, within window
+2. **SELL** — close < orbLow, volume > 1.2× avg, RSI < 45, price < VWAP, within window
+3. **HOLD (trend filter)** — close above ORB high but price < VWAP (bearish trend blocks)
+4. **HOLD (time window)** — all price/volume/RSI conditions met but outside 9:30–11:30 AM IST
+5. **Insufficient data** — fewer than 3 session candles → HOLD with "not yet formed" message
 
 ## Out of Scope
 
 - ATR-based stop/target levels (future enhancement)
 - Configurable opening range duration (fixed at 15 min / 3 candles)
+- Configurable time window (fixed at 9:30–11:30 AM IST)
