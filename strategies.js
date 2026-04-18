@@ -129,7 +129,11 @@ export function bollingerRsiStrategy(candles) {
 
 export function orbStrategy(candles) {
   if (candles.length === 0) {
-    return { signal: "HOLD", indicators: {}, rules: [{ label: "No candles", pass: false }] };
+    return {
+      signal: "HOLD",
+      indicators: { price: null, orbHigh: null, orbLow: null, avgOrbVolume: null, vwap: null, rsi14: null },
+      rules: [{ label: "No candles", pass: false }],
+    };
   }
 
   // IST session anchor — same logic as calcVWAP
@@ -140,13 +144,12 @@ export function orbStrategy(candles) {
 
   const sessionCandles = candles.filter((c) => c.time >= istMidnight.getTime());
 
-  // Extract price early for all return paths
-  const price = candles[candles.length - 1].close;
-
   if (sessionCandles.length < 3) {
+    const lastCandle = candles[candles.length - 1];
+    const { close } = lastCandle;
     return {
       signal: "HOLD",
-      indicators: { price, orbHigh: null, orbLow: null, avgOrbVolume: null, vwap: null, rsi14: null },
+      indicators: { price: close, orbHigh: null, orbLow: null, avgOrbVolume: null, vwap: null, rsi14: null },
       rules: [{ label: "Opening range not yet formed (need 3 candles)", pass: false }],
     };
   }
@@ -158,9 +161,7 @@ export function orbStrategy(candles) {
   const avgOrbVolume = orbCandles.reduce((sum, c) => sum + c.volume, 0) / 3;
 
   // VWAP for full session
-  const cumTPV = sessionCandles.reduce((sum, c) => sum + ((c.high + c.low + c.close) / 3) * c.volume, 0);
-  const cumVol = sessionCandles.reduce((sum, c) => sum + c.volume, 0);
-  const vwap = cumVol === 0 ? null : cumTPV / cumVol;
+  const vwap = calcVWAP(candles);
 
   // Compute RSI on all candles except the current one so that the current
   // candle's close does not distort the momentum reading (same principle as
@@ -176,13 +177,13 @@ export function orbStrategy(candles) {
   const utcMinutes = t.getUTCHours() * 60 + t.getUTCMinutes();
   const inWindow = utcMinutes >= 240 && utcMinutes <= 360;
 
-  const indicators = { price, orbHigh, orbLow, avgOrbVolume, vwap, rsi14 };
+  const indicators = { price: close, orbHigh, orbLow, avgOrbVolume, vwap, rsi14 };
 
   const buyRules = [
     { label: "Close > ORB High",                  pass: close > orbHigh },
     { label: "Volume > 1.2× avg ORB volume",       pass: volume > avgOrbVolume * 1.2 },
     { label: "RSI(14) > 55 (bullish momentum)",    pass: rsi14 !== null && rsi14 > 55 },
-    { label: "Price > VWAP (bullish trend)",        pass: vwap !== null && price > vwap },
+    { label: "Price > VWAP (bullish trend)",        pass: vwap !== null && close > vwap },
     { label: "Within ORB window (9:30–11:30 IST)", pass: inWindow },
   ];
 
@@ -190,7 +191,7 @@ export function orbStrategy(candles) {
     { label: "Close < ORB Low",                    pass: close < orbLow },
     { label: "Volume > 1.2× avg ORB volume",       pass: volume > avgOrbVolume * 1.2 },
     { label: "RSI(14) < 45 (bearish momentum)",    pass: rsi14 !== null && rsi14 < 45 },
-    { label: "Price < VWAP (bearish trend)",        pass: vwap !== null && price < vwap },
+    { label: "Price < VWAP (bearish trend)",        pass: vwap !== null && close < vwap },
     { label: "Within ORB window (9:30–11:30 IST)", pass: inWindow },
   ];
 
