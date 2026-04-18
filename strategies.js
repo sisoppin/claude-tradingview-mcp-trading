@@ -1,10 +1,10 @@
 import { calcEMA, calcRSI, calcMACD, calcBollingerBands } from "./indicators.js";
 
-function calcVWAP(candles) {
-  const now = new Date();
-  const istMidnight = new Date(now);
+function calcVWAP(candles, now = Date.now()) {
+  const ref = new Date(now);
+  const istMidnight = new Date(ref);
   istMidnight.setUTCHours(18, 30, 0, 0);
-  if (istMidnight > now) istMidnight.setUTCDate(istMidnight.getUTCDate() - 1);
+  if (istMidnight > ref) istMidnight.setUTCDate(istMidnight.getUTCDate() - 1);
   const session = candles.filter((c) => c.time >= istMidnight.getTime());
   if (session.length === 0) return null;
   const cumTPV = session.reduce((sum, c) => sum + ((c.high + c.low + c.close) / 3) * c.volume, 0);
@@ -12,11 +12,11 @@ function calcVWAP(candles) {
   return cumVol === 0 ? null : cumTPV / cumVol;
 }
 
-export function vwapEmaRsiStrategy(candles) {
+export function vwapEmaRsiStrategy(candles, now = Date.now()) {
   const closes = candles.map((c) => c.close);
   const price = closes[closes.length - 1];
   const ema8 = calcEMA(closes, 8);
-  const vwap = calcVWAP(candles);
+  const vwap = calcVWAP(candles, now);
   const rsi3 = calcRSI(closes, 3);
 
   const indicators = { price, ema8, vwap, rsi3 };
