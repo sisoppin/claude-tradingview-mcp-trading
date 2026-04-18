@@ -29,7 +29,7 @@ export function isMarketOpen(now = new Date()) {
   const day = ist.getUTCDay(); // 0=Sun, 6=Sat
   if (day === 0 || day === 6) return false;
   const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
+  return mins >= 9 * 60 + 15 && mins < 15 * 60 + 30;
 }
 
 async function resolveInstrument(accessToken, tradingsymbol, exchange) {
@@ -118,7 +118,7 @@ async function fetchCandlesYahoo(tradingsymbol, exchange, timeframe) {
       close: quote.close[i],
       volume: quote.volume[i],
     }))
-    .filter((c) => c.close != null);
+    .filter((c) => c.close != null && c.open != null && c.high != null && c.low != null);
 }
 
 export async function fetchCandles(accessToken, tradingsymbol, exchange, instrumentType, timeframe) {

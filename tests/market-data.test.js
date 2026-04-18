@@ -29,6 +29,16 @@ describe("isMarketOpen", () => {
     assert.equal(isMarketOpen(new Date("2025-01-06T06:30:00Z")), true);
   });
 
+  test("returns false at exactly 3:30 PM IST (market close boundary)", () => {
+    // Monday 2025-01-06, 3:30 PM IST = 10:00 UTC — excluded (strict less-than)
+    assert.equal(isMarketOpen(new Date("2025-01-06T10:00:00Z")), false);
+  });
+
+  test("returns true at 3:29 PM IST (last valid minute)", () => {
+    // Monday 2025-01-06, 3:29 PM IST = 09:59 UTC
+    assert.equal(isMarketOpen(new Date("2025-01-06T09:59:00Z")), true);
+  });
+
   test("returns false after market close (3:30 PM IST)", () => {
     // Monday 2025-01-06, 4:00 PM IST = 10:30 UTC
     assert.equal(isMarketOpen(new Date("2025-01-06T10:30:00Z")), false);

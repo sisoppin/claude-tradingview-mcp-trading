@@ -1,6 +1,6 @@
 {
-  "watchlist": ["BTCUSDT"],
-  "default_timeframe": "1m",
+  "watchlist": ["RELIANCE"],
+  "default_timeframe": "5m",
 
   "strategy": {
     "name": "VWAP + RSI(3) + EMA(8) Scalping Strategy",

@@ -18,6 +18,10 @@ export async function placeZerodhaOrder(
     throw new Error(`Invalid price ${price} for ${tradingsymbol}`);
   }
 
+  if (!["buy", "sell"].includes(side?.toLowerCase())) {
+    throw new Error(`Invalid side "${side}" — must be "buy" or "sell"`);
+  }
+
   let quantity;
 
   if (exchange === "NFO") {

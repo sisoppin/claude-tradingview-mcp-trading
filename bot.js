@@ -111,9 +111,12 @@ function calcRSI(closes, period = 14) {
 }
 
 function calcVWAP(candles) {
-  const midnightUTC = new Date();
-  midnightUTC.setUTCHours(0, 0, 0, 0);
-  const sessionCandles = candles.filter((c) => c.time >= midnightUTC.getTime());
+  // NSE session starts at IST midnight (18:30 UTC previous day)
+  const now = new Date();
+  const istMidnight = new Date(now);
+  istMidnight.setUTCHours(18, 30, 0, 0);
+  if (istMidnight > now) istMidnight.setUTCDate(istMidnight.getUTCDate() - 1);
+  const sessionCandles = candles.filter((c) => c.time >= istMidnight.getTime());
   if (sessionCandles.length === 0) return null;
   const cumTPV = sessionCandles.reduce(
     (sum, c) => sum + ((c.high + c.low + c.close) / 3) * c.volume, 0,
@@ -378,7 +381,12 @@ async function run() {
       console.log(`   (Set PAPER_TRADING=false in .env to place real orders)`);
       logEntry.orderPlaced = true;
       logEntry.orderId = `PAPER-${Date.now()}`;
-      logEntry.orderQuantity = Math.floor(logEntry.tradeSize / logEntry.price);
+      if (CONFIG.exchange === "NFO") {
+        const lots = Math.floor(logEntry.tradeSize / (logEntry.price * logEntry.lotSize));
+        logEntry.orderQuantity = lots > 0 ? lots * logEntry.lotSize : 0;
+      } else {
+        logEntry.orderQuantity = Math.floor(logEntry.tradeSize / logEntry.price);
+      }
     } else {
       console.log(`\n🔴 PLACING LIVE ORDER — ₹${tradeSize.toFixed(2)} ${side.toUpperCase()} ${CONFIG.tradingsymbol}`);
       try {

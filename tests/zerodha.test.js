@@ -98,6 +98,20 @@ describe("placeZerodhaOrder", () => {
     );
   });
 
+  test("throws on invalid side value", async () => {
+    await assert.rejects(
+      () => placeZerodhaOrder("token", {
+        tradingsymbol: "SBIN",
+        exchange: "NSE",
+        side: "long",
+        sizeUSD: 1000,
+        price: 100,
+        lotSize: 1,
+      }),
+      /Invalid side "long"/
+    );
+  });
+
   test("sends correct transaction_type for sell orders", async (t) => {
     process.env.KITE_API_KEY = "test-key";
     let capturedBody = "";
