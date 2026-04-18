@@ -37,6 +37,9 @@ export function printLoginInstructions() {
 export async function exchangeToken(requestToken, tokenFile = "kite-token.json") {
   const apiKey = process.env.KITE_API_KEY;
   const apiSecret = process.env.KITE_API_SECRET;
+  if (!apiKey || !apiSecret) {
+    throw new Error("KITE_API_KEY and KITE_API_SECRET must be set in environment");
+  }
 
   const checksum = crypto
     .createHash("sha256")
@@ -51,6 +54,11 @@ export async function exchangeToken(requestToken, tokenFile = "kite-token.json")
     },
     body: new URLSearchParams({ api_key: apiKey, request_token: requestToken, checksum }),
   });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Kite session request failed with HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
 
   const data = await res.json();
   if (data.status !== "success") throw new Error(`Kite auth failed: ${data.message}`);

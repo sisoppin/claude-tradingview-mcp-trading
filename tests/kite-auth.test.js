@@ -37,6 +37,7 @@ describe("exchangeToken", () => {
     process.env.KITE_API_SECRET = "test-secret";
 
     t.mock.method(global, "fetch", async () => ({
+      ok: true,
       json: async () => ({ status: "success", data: { access_token: "returned-token" } }),
     }));
 
@@ -54,6 +55,7 @@ describe("exchangeToken", () => {
     process.env.KITE_API_SECRET = "test-secret";
 
     t.mock.method(global, "fetch", async () => ({
+      ok: true,
       json: async () => ({ status: "error", message: "Invalid request token" }),
     }));
 
@@ -62,5 +64,31 @@ describe("exchangeToken", () => {
       /Kite auth failed: Invalid request token/
     );
     cleanup();
+  });
+
+  test("throws on missing env vars", async () => {
+    delete process.env.KITE_API_KEY;
+    delete process.env.KITE_API_SECRET;
+
+    await assert.rejects(
+      () => exchangeToken("any-token", TEST_FILE),
+      /KITE_API_KEY and KITE_API_SECRET must be set in environment/
+    );
+  });
+
+  test("throws on HTTP error response", async (t) => {
+    process.env.KITE_API_KEY = "test-key";
+    process.env.KITE_API_SECRET = "test-secret";
+
+    t.mock.method(global, "fetch", async () => ({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+    }));
+
+    await assert.rejects(
+      () => exchangeToken("any-token", TEST_FILE),
+      /Kite session request failed with HTTP 401/
+    );
   });
 });
