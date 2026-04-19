@@ -133,19 +133,19 @@ describe("modeCombinedSignal — confidence score", () => {
     assert.equal(r.confidence, "WEAK");
   });
 
-  test("STRONG when MACD-only: 2/2 rules pass → score 1.0 ≥ 0.85", () => {
+  test("STRONG when MACD-only: 1/2 rules pass → score 0.5 ≥ 0.5 (realistic MACD cross)", () => {
     const results = [
-      makeResult("HOLD", 0, 4), makeResult("BUY", 2, 2),
+      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 2),
       makeResult("HOLD", 0, 2), makeResult("HOLD", 0, 5),
     ];
     const r = modeCombinedSignal("bullish", false, results);
     assert.equal(r.confidence, "STRONG");
-    assert.ok(Math.abs(r.score - 1.0) < 0.01, `expected score 1.0, got ${r.score}`);
+    assert.ok(Math.abs(r.score - 0.5) < 0.01, `expected score 0.5, got ${r.score}`);
   });
 
-  test("WEAK when MACD-only: 1/2 rules pass → score 0.5 < 0.85", () => {
+  test("WEAK when MACD-only: 0/2 rules pass → score 0 < 0.5", () => {
     const results = [
-      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 2),
+      makeResult("HOLD", 0, 4), makeResult("BUY", 0, 2),
       makeResult("HOLD", 0, 2), makeResult("HOLD", 0, 5),
     ];
     const r = modeCombinedSignal("bullish", false, results);

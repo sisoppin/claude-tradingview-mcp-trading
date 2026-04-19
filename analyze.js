@@ -49,8 +49,10 @@ function calcConfidence(signal, activeStrategies, activeResults) {
   if (scores.length === 0) return { confidence: "WEAK", score: 0 };
   const raw = scores.reduce((a, b) => a + b, 0) / scores.length;
   const score = Math.round(raw * 100) / 100;
+  // MACD has 2 mutually exclusive rules (bullish XOR bearish cross), so max score is always 0.5.
+  // A score of 0.5 means the cross fired — that IS the full signal, so treat it as STRONG.
   const onlyMACD = activeStrategies.length === 1 && activeStrategies[0] === "MACD";
-  const threshold = onlyMACD ? 0.85 : 0.75;
+  const threshold = onlyMACD ? 0.5 : 0.75;
   return { confidence: score >= threshold ? "STRONG" : "WEAK", score };
 }
 
