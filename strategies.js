@@ -201,3 +201,21 @@ export function orbStrategy(candles) {
   const rules = close > orbHigh ? buyRules : close < orbLow ? sellRules : [...buyRules, ...sellRules];
   return { signal: "HOLD", indicators, rules };
 }
+
+export function detectMarketMode(candles) {
+  if (candles.length < 4) {
+    return { mode: "sideways", vwap: null, vwapSlope: null };
+  }
+  const currentVWAP = calcVWAP(candles);
+  const prevVWAP = calcVWAP(candles.slice(0, -3));
+  if (!currentVWAP || !prevVWAP) {
+    return { mode: "sideways", vwap: currentVWAP, vwapSlope: null };
+  }
+  const vwapSlope = currentVWAP - prevVWAP;
+  const price = candles[candles.length - 1].close;
+  let mode;
+  if (price > currentVWAP && vwapSlope > 0) mode = "bullish";
+  else if (price < currentVWAP && vwapSlope < 0) mode = "bearish";
+  else mode = "sideways";
+  return { mode, vwap: currentVWAP, vwapSlope };
+}

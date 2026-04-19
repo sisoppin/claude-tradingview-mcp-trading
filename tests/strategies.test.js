@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy } from "../strategies.js";
+import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy, detectMarketMode } from "../strategies.js";
 
 function makeCandles(closes, baseVolume = 100000) {
   return closes.map((c, i) => ({
@@ -197,5 +197,56 @@ describe("orbStrategy", () => {
     const result = orbStrategy(candles);
     assert.equal(result.signal, "HOLD");
     assert.ok(result.rules[0].label.includes("not yet formed"));
+  });
+});
+
+describe("detectMarketMode", () => {
+  const sessionStart = new Date("2026-04-18T18:30:00Z").getTime();
+  const fiveMin = 5 * 60 * 1000;
+
+  function makeSessionCandles(closes) {
+    return closes.map((c, i) => ({
+      time: sessionStart + (i + 1) * fiveMin,
+      open: c - 1, high: c + 2, low: c - 2, close: c, volume: 100000,
+    }));
+  }
+
+  test("returns sideways when fewer than 4 candles", () => {
+    const candles = makeSessionCandles([100, 101, 102]);
+    const result = detectMarketMode(candles);
+    assert.equal(result.mode, "sideways");
+    assert.equal(result.vwap, null);
+  });
+
+  test("returns bullish when price > VWAP and slope > 0", () => {
+    const closes = [...Array(10).fill(100), 120, 130, 140, 150];
+    const candles = makeSessionCandles(closes);
+    const result = detectMarketMode(candles);
+    assert.equal(result.mode, "bullish");
+    assert.ok(result.vwap !== null);
+    assert.ok(result.vwapSlope > 0, `expected vwapSlope > 0, got ${result.vwapSlope}`);
+  });
+
+  test("returns bearish when price < VWAP and slope < 0", () => {
+    const closes = [...Array(10).fill(150), 130, 120, 110, 100];
+    const candles = makeSessionCandles(closes);
+    const result = detectMarketMode(candles);
+    assert.equal(result.mode, "bearish");
+    assert.ok(result.vwapSlope < 0, `expected vwapSlope < 0, got ${result.vwapSlope}`);
+  });
+
+  test("returns sideways when price equals VWAP (flat market)", () => {
+    const closes = Array(14).fill(100);
+    const candles = makeSessionCandles(closes);
+    const result = detectMarketMode(candles);
+    assert.equal(result.mode, "sideways");
+  });
+
+  test("result always has mode, vwap, vwapSlope fields", () => {
+    const candles = makeSessionCandles(Array.from({ length: 10 }, (_, i) => 100 + i));
+    const result = detectMarketMode(candles);
+    assert.ok("mode" in result);
+    assert.ok("vwap" in result);
+    assert.ok("vwapSlope" in result);
   });
 });
