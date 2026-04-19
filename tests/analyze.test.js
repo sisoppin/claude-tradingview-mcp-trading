@@ -170,6 +170,18 @@ describe("modeCombinedSignal — confidence score", () => {
     assert.equal(r.confidence, "WEAK");
   });
 
+  test("exactly 0.75 score is STRONG (threshold is >=, not >)", () => {
+    // To get exactly 0.75 avg: use two strategies both scoring 0.75.
+    // VWAP 3/4 = 0.75, BB 3/4 = 0.75 → avg = 0.75
+    const results = [
+      makeResult("BUY", 3, 4), makeResult("HOLD", 0, 2),
+      makeResult("BUY", 3, 4), makeResult("HOLD", 0, 5),
+    ];
+    const r = modeCombinedSignal("sideways", false, results);
+    assert.equal(r.confidence, "STRONG");
+    assert.ok(Math.abs(r.score - 0.75) < 0.01, `expected score 0.75, got ${r.score}`);
+  });
+
   test("always WEAK with score 0 for HOLD signal", () => {
     const results = [
       makeResult("HOLD", 4, 4), makeResult("HOLD", 2, 2),

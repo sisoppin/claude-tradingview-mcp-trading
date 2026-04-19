@@ -43,11 +43,12 @@ export function isInOrbWindow(candles) {
 
 function calcConfidence(signal, activeStrategies, activeResults) {
   if (signal === "HOLD") return { confidence: "WEAK", score: 0 };
-  const scores = activeResults.map(r => {
-    if (!r.rules || r.rules.length === 0) return 0;
-    return r.rules.filter(x => x.pass).length / r.rules.length;
-  });
-  const score = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const scores = activeResults
+    .filter(r => r.rules && r.rules.length > 0)
+    .map(r => r.rules.filter(x => x.pass).length / r.rules.length);
+  if (scores.length === 0) return { confidence: "WEAK", score: 0 };
+  const raw = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const score = Math.round(raw * 100) / 100;
   const onlyMACD = activeStrategies.length === 1 && activeStrategies[0] === "MACD";
   const threshold = onlyMACD ? 0.85 : 0.75;
   return { confidence: score >= threshold ? "STRONG" : "WEAK", score };
