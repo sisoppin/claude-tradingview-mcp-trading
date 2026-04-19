@@ -18,6 +18,16 @@ describe("isInOrbWindow", () => {
     const candles = [{ time: new Date("2026-04-18T07:00:00Z").getTime() }];
     assert.equal(isInOrbWindow(candles), false);
   });
+
+  test("returns false for 9:29 AM IST (04:29 UTC — just before window opens)", () => {
+    const candles = [{ time: new Date("2026-04-18T03:59:00Z").getTime() }];
+    assert.equal(isInOrbWindow(candles), false);
+  });
+
+  test("returns true for exactly 11:30 AM IST (06:00 UTC — window boundary)", () => {
+    const candles = [{ time: new Date("2026-04-18T06:00:00Z").getTime() }];
+    assert.equal(isInOrbWindow(candles), true);
+  });
 });
 
 describe("modeCombinedSignal — trending + in ORB window", () => {
@@ -79,5 +89,11 @@ describe("modeCombinedSignal — sideways", () => {
   test("SELL when BB+RSI fires SELL", () => {
     const result = modeCombinedSignal("sideways", false, [HOLD, HOLD, SELL, HOLD]);
     assert.equal(result.signal, "SELL");
+  });
+
+  test("HOLD when only ORB and MACD fire (sideways ignores trend strategies)", () => {
+    const result = modeCombinedSignal("sideways", true, [HOLD, BUY, HOLD, BUY]);
+    assert.equal(result.signal, "HOLD");
+    assert.deepEqual(result.activeStrategies, ["VWAP+EMA+RSI", "BB+RSI"]);
   });
 });

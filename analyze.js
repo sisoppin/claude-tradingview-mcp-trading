@@ -60,6 +60,8 @@ export function modeCombinedSignal(mode, inOrbWindow, results) {
     return { signal: "HOLD", mode, activeStrategies: ["MACD"], count: 0, total: 1 };
   }
 
+  // Sideways mode: only mean-reversion strategies are active regardless of ORB window.
+  // ORB (s4) and MACD (s2) are intentionally excluded — they add noise in flat markets.
   if (s1.signal !== "HOLD") {
     return { signal: s1.signal, mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 1, total: 2 };
   }
