@@ -1,6 +1,7 @@
 import "dotenv/config";
+import { fileURLToPath } from "url";
 import { writeFileSync } from "fs";
-import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy } from "./strategies.js";
+import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy, detectMarketMode } from "./strategies.js";
 
 const SYMBOL = process.env.TRADINGSYMBOL || "RELIANCE";
 const EXCHANGE = process.env.EXCHANGE || "BSE";
@@ -32,6 +33,40 @@ function signalIcon(signal) {
   if (signal === "BUY")  return "🟢";
   if (signal === "SELL") return "🔴";
   return "🟡";
+}
+
+export function isInOrbWindow(candles) {
+  const t = new Date(candles[candles.length - 1].time);
+  const utcMinutes = t.getUTCHours() * 60 + t.getUTCMinutes();
+  return utcMinutes >= 240 && utcMinutes <= 360;
+}
+
+export function modeCombinedSignal(mode, inOrbWindow, results) {
+  const [s1, s2, s3, s4] = results;
+
+  if (mode === "bullish" || mode === "bearish") {
+    if (inOrbWindow) {
+      if (s4.signal !== "HOLD" && s4.signal === s2.signal) {
+        return { signal: s4.signal, mode, activeStrategies: ["ORB", "MACD"], count: 2, total: 2 };
+      }
+      if (s2.signal !== "HOLD") {
+        return { signal: s2.signal, mode, activeStrategies: ["ORB", "MACD"], count: 1, total: 2 };
+      }
+      return { signal: "HOLD", mode, activeStrategies: ["ORB", "MACD"], count: 0, total: 2 };
+    }
+    if (s2.signal !== "HOLD") {
+      return { signal: s2.signal, mode, activeStrategies: ["MACD"], count: 1, total: 1 };
+    }
+    return { signal: "HOLD", mode, activeStrategies: ["MACD"], count: 0, total: 1 };
+  }
+
+  if (s1.signal !== "HOLD") {
+    return { signal: s1.signal, mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 1, total: 2 };
+  }
+  if (s3.signal !== "HOLD") {
+    return { signal: s3.signal, mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 1, total: 2 };
+  }
+  return { signal: "HOLD", mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 0, total: 2 };
 }
 
 // Threshold is 2 (not majority) because ORB is time-windowed (active 9:30–11:30 IST only);
@@ -185,7 +220,9 @@ async function run() {
   console.log("  HTML report saved → report.html\n");
 }
 
-run().catch((err) => {
-  console.error("Error:", err.message);
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  run().catch((err) => {
+    console.error("Error:", err.message);
+    process.exit(1);
+  });
+}
