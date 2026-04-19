@@ -71,26 +71,21 @@ export function modeCombinedSignal(mode, inOrbWindow, results) {
   return { signal: "HOLD", mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 0, total: 2 };
 }
 
-// Threshold is 2 (not majority) because ORB is time-windowed (active 9:30–11:30 IST only);
-// requiring >50% agreement would suppress signals for most of the trading day.
-function combinedSignal(results) {
-  const buys  = results.filter((r) => r.signal === "BUY").length;
-  const sells = results.filter((r) => r.signal === "SELL").length;
-  if (buys >= 2)  return { signal: "BUY",  count: buys,  total: results.length };
-  if (sells >= 2) return { signal: "SELL", count: sells, total: results.length };
-  return { signal: "HOLD", count: 0, total: results.length };
-}
 
-function printTerminal(candles, results, combined, now) {
+function printTerminal(candles, results, combined, modeResult, now) {
   const price  = candles[candles.length - 1].close;
   const [s1, s2, s3, s4] = results;
   const fmt = (v, prefix = "₹") => v != null ? `${prefix}${Number(v).toFixed(2)}` : "N/A";
+  const modeLabel = modeResult.mode === "bullish" ? "BULLISH TREND"
+    : modeResult.mode === "bearish" ? "BEARISH TREND" : "SIDEWAYS";
 
   console.log("\n═══════════════════════════════════════════════════════════");
   console.log(`  ${SYMBOL} (${EXCHANGE}) — Strategy Analysis`);
   console.log(`  ${now}`);
   console.log("═══════════════════════════════════════════════════════════\n");
   console.log(`  Current Price : ${fmt(price)}`);
+  console.log(`  Market Mode   : ${modeLabel}`);
+  console.log(`  VWAP Slope    : ${modeResult.vwapSlope != null ? modeResult.vwapSlope.toFixed(4) : "N/A"}`);
   console.log(`  EMA(8)        : ${fmt(s1.indicators.ema8)}`);
   console.log(`  VWAP          : ${fmt(s1.indicators.vwap)}`);
   console.log(`  RSI(3)        : ${s1.indicators.rsi3 != null ? s1.indicators.rsi3.toFixed(2) : "N/A"}`);
@@ -116,16 +111,21 @@ function printTerminal(candles, results, combined, now) {
   }
 
   console.log("─────────────────────────────────────────────────────────────");
-  console.log(`  Combined Signal                ${signalIcon(combined.signal)} ${combined.signal.padEnd(6)}  ${combined.count}/${combined.total} strategies agree`);
+  console.log(`  Active Strategies              [${combined.activeStrategies.join(", ")}]`);
+  console.log(`  Combined Signal                ${signalIcon(combined.signal)} ${combined.signal.padEnd(6)}  ${combined.count}/${combined.total} agree`);
   console.log("═══════════════════════════════════════════════════════════\n");
 }
 
-function buildHtml(candles, results, combined, now) {
+function buildHtml(candles, results, combined, modeResult, now) {
   const price = candles[candles.length - 1].close;
   const [s1, s2, s3, s4] = results;
   const fmt = (v, p = "₹") => v != null ? `${p}${Number(v).toFixed(2)}` : "N/A";
   const colorMap = { BUY: "#16a34a", SELL: "#dc2626", HOLD: "#ca8a04" };
   const bgMap    = { BUY: "#f0fdf4", SELL: "#fef2f2", HOLD: "#fefce8" };
+  const modeLabel = modeResult.mode === "bullish" ? "BULLISH TREND"
+    : modeResult.mode === "bearish" ? "BEARISH TREND" : "SIDEWAYS";
+  const modeColor = modeResult.mode === "bullish" ? "#16a34a"
+    : modeResult.mode === "bearish" ? "#dc2626" : "#ca8a04";
 
   const strategyRows = [
     ["VWAP + EMA(8) + RSI(3)", s1],
@@ -184,6 +184,8 @@ function buildHtml(candles, results, combined, now) {
     <div class="ind-box"><div class="ind-label">ORB High</div><div class="ind-value">${fmt(s4.indicators.orbHigh)}</div></div>
     <div class="ind-box"><div class="ind-label">ORB Low</div><div class="ind-value">${fmt(s4.indicators.orbLow)}</div></div>
     <div class="ind-box"><div class="ind-label">ORB RSI(14)</div><div class="ind-value">${s4.indicators.rsi14 != null ? s4.indicators.rsi14.toFixed(2) : "N/A"}</div></div>
+    <div class="ind-box"><div class="ind-label">Market Mode</div><div class="ind-value" style="color:${modeColor}">${modeLabel}</div></div>
+    <div class="ind-box"><div class="ind-label">VWAP Slope</div><div class="ind-value">${modeResult.vwapSlope != null ? modeResult.vwapSlope.toFixed(4) : "N/A"}</div></div>
   </div>
 </div>
 <div class="card">
@@ -194,9 +196,9 @@ function buildHtml(candles, results, combined, now) {
   </table>
 </div>
 <div class="card combined" style="background:${bgMap[combined.signal]};border:2px solid ${colorMap[combined.signal]}">
-  <div style="color:#64748b;font-size:0.9em;margin-bottom:8px">COMBINED SIGNAL</div>
+  <div style="color:#64748b;font-size:0.9em;margin-bottom:8px">COMBINED SIGNAL · <span style="color:${modeColor}">${modeLabel}</span></div>
   <div class="combined-signal" style="color:${colorMap[combined.signal]}">${signalIcon(combined.signal)} ${combined.signal}</div>
-  <div style="color:#64748b;margin-top:8px">${combined.count}/${combined.total} strategies agree</div>
+  <div style="color:#64748b;margin-top:8px">${combined.count}/${combined.total} agree · Active: ${combined.activeStrategies.join(", ")}</div>
 </div>
 </body>
 </html>`;
@@ -212,12 +214,14 @@ async function run() {
   const s3 = bollingerRsiStrategy(candles);
   const s4 = orbStrategy(candles);
   const results = [s1, s2, s3, s4];
-  const combined = combinedSignal(results);
+  const modeResult = detectMarketMode(candles);
+  const inOrbWindow = isInOrbWindow(candles);
+  const combined = modeCombinedSignal(modeResult.mode, inOrbWindow, results);
   const now = new Date().toISOString();
 
-  printTerminal(candles, results, combined, now);
+  printTerminal(candles, results, combined, modeResult, now);
 
-  const html = buildHtml(candles, results, combined, now);
+  const html = buildHtml(candles, results, combined, modeResult, now);
   writeFileSync("report.html", html);
   console.log("  HTML report saved → report.html\n");
 }
