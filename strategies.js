@@ -206,12 +206,15 @@ export function detectMarketMode(candles) {
   if (candles.length < 4) {
     return { mode: "sideways", vwap: null, vwapSlope: null };
   }
+  // Note: calcVWAP filters to the current IST session; off-session candles
+  // will still produce null here and fall through to the null-VWAP guard below.
   const currentVWAP = calcVWAP(candles);
   const prevVWAP = calcVWAP(candles.slice(0, -3));
   if (!currentVWAP || !prevVWAP) {
     return { mode: "sideways", vwap: currentVWAP, vwapSlope: null };
   }
   const vwapSlope = currentVWAP - prevVWAP;
+  // vwapSlope is a raw price-unit difference (not %; used only for direction: > 0 or < 0)
   const price = candles[candles.length - 1].close;
   let mode;
   if (price > currentVWAP && vwapSlope > 0) mode = "bullish";

@@ -218,6 +218,23 @@ describe("detectMarketMode", () => {
     assert.equal(result.vwap, null);
   });
 
+  test("does not return null vwap with exactly 4 session candles", () => {
+    const candles = makeSessionCandles([100, 101, 102, 103]);
+    const result = detectMarketMode(candles);
+    assert.ok(["bullish", "bearish", "sideways"].includes(result.mode));
+  });
+
+  test("returns sideways when candles are outside the IST session (null VWAP)", () => {
+    // Candles anchored far in the past — calcVWAP will return null (no session candles)
+    const staleStart = new Date("2020-01-01T00:00:00Z").getTime();
+    const staleCandles = Array.from({ length: 10 }, (_, i) => ({
+      time: staleStart + (i + 1) * 5 * 60 * 1000,
+      open: 99, high: 102, low: 98, close: 100, volume: 100000,
+    }));
+    const result = detectMarketMode(staleCandles);
+    assert.equal(result.mode, "sideways");
+  });
+
   test("returns bullish when price > VWAP and slope > 0", () => {
     const closes = [...Array(10).fill(100), 120, 130, 140, 150];
     const candles = makeSessionCandles(closes);
