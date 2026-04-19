@@ -138,6 +138,7 @@ function printTerminal(candles, results, combined, modeResult, now) {
   console.log("─────────────────────────────────────────────────────────────");
   console.log(`  Active Strategies              [${combined.activeStrategies.join(", ")}]`);
   console.log(`  Combined Signal                ${signalIcon(combined.signal)} ${combined.signal.padEnd(6)}  ${combined.count}/${combined.total} agree`);
+  console.log(`  Confidence                     ${combined.confidence} (${(combined.score * 100).toFixed(0)}%)`);
   console.log("═══════════════════════════════════════════════════════════\n");
 }
 
@@ -224,6 +225,7 @@ function buildHtml(candles, results, combined, modeResult, now) {
   <div style="color:#64748b;font-size:0.9em;margin-bottom:8px">COMBINED SIGNAL · <span style="color:${modeColor}">${modeLabel}</span></div>
   <div class="combined-signal" style="color:${colorMap[combined.signal]}">${signalIcon(combined.signal)} ${combined.signal}</div>
   <div style="color:#64748b;margin-top:8px">${combined.count}/${combined.total} agree · Active: ${combined.activeStrategies.join(", ")}</div>
+  <div style="margin-top:12px"><span style="background:${combined.confidence === 'STRONG' ? '#16a34a' : '#ca8a04'};color:#fff;padding:4px 12px;border-radius:9999px;font-size:0.85em;font-weight:700">${combined.confidence} · ${(combined.score * 100).toFixed(0)}%</span></div>
 </div>
 </body>
 </html>`;
