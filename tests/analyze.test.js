@@ -103,3 +103,81 @@ describe("modeCombinedSignal — sideways", () => {
     assert.deepEqual(result.activeStrategies, ["VWAP+EMA+RSI", "BB+RSI"]);
   });
 });
+
+describe("modeCombinedSignal — confidence score", () => {
+  function makeResult(signal, passCount, totalRules) {
+    return {
+      signal,
+      rules: Array.from({ length: totalRules }, (_, i) => ({ label: `r${i}`, pass: i < passCount })),
+    };
+  }
+
+  // results order: [s1=VWAP+EMA+RSI(4 rules), s2=MACD(2 rules), s3=BB+RSI(2 rules), s4=ORB(5 rules)]
+
+  test("STRONG when trending+ORB: ORB 3/5 + MACD 2/2 → avg 0.80 ≥ 0.75", () => {
+    const results = [
+      makeResult("HOLD", 0, 4), makeResult("BUY", 2, 2),
+      makeResult("HOLD", 0, 2), makeResult("BUY", 3, 5),
+    ];
+    const r = modeCombinedSignal("bullish", true, results);
+    assert.equal(r.confidence, "STRONG");
+    assert.ok(Math.abs(r.score - 0.8) < 0.01, `expected score ~0.80, got ${r.score}`);
+  });
+
+  test("WEAK when trending+ORB: ORB 2/5 + MACD 1/2 → avg 0.45 < 0.75", () => {
+    const results = [
+      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 2),
+      makeResult("HOLD", 0, 2), makeResult("BUY", 2, 5),
+    ];
+    const r = modeCombinedSignal("bullish", true, results);
+    assert.equal(r.confidence, "WEAK");
+  });
+
+  test("STRONG when MACD-only: 2/2 rules pass → score 1.0 ≥ 0.85", () => {
+    const results = [
+      makeResult("HOLD", 0, 4), makeResult("BUY", 2, 2),
+      makeResult("HOLD", 0, 2), makeResult("HOLD", 0, 5),
+    ];
+    const r = modeCombinedSignal("bullish", false, results);
+    assert.equal(r.confidence, "STRONG");
+    assert.ok(Math.abs(r.score - 1.0) < 0.01, `expected score 1.0, got ${r.score}`);
+  });
+
+  test("WEAK when MACD-only: 1/2 rules pass → score 0.5 < 0.85", () => {
+    const results = [
+      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 2),
+      makeResult("HOLD", 0, 2), makeResult("HOLD", 0, 5),
+    ];
+    const r = modeCombinedSignal("bullish", false, results);
+    assert.equal(r.confidence, "WEAK");
+  });
+
+  test("STRONG when sideways: VWAP 4/4 + BB 2/2 → avg 1.0 ≥ 0.75", () => {
+    const results = [
+      makeResult("BUY", 4, 4), makeResult("HOLD", 0, 2),
+      makeResult("BUY", 2, 2), makeResult("HOLD", 0, 5),
+    ];
+    const r = modeCombinedSignal("sideways", false, results);
+    assert.equal(r.confidence, "STRONG");
+  });
+
+  test("WEAK when sideways: VWAP 2/4 + BB 1/2 → avg 0.50 < 0.75", () => {
+    const results = [
+      makeResult("BUY", 2, 4), makeResult("HOLD", 0, 2),
+      makeResult("BUY", 1, 2), makeResult("HOLD", 0, 5),
+    ];
+    const r = modeCombinedSignal("sideways", false, results);
+    assert.equal(r.confidence, "WEAK");
+  });
+
+  test("always WEAK with score 0 for HOLD signal", () => {
+    const results = [
+      makeResult("HOLD", 4, 4), makeResult("HOLD", 2, 2),
+      makeResult("HOLD", 2, 2), makeResult("HOLD", 5, 5),
+    ];
+    const r = modeCombinedSignal("sideways", false, results);
+    assert.equal(r.signal, "HOLD");
+    assert.equal(r.confidence, "WEAK");
+    assert.equal(r.score, 0);
+  });
+});

@@ -41,34 +41,58 @@ export function isInOrbWindow(candles) {
   return utcMinutes >= 240 && utcMinutes <= 360;
 }
 
+function calcConfidence(signal, activeStrategies, activeResults) {
+  if (signal === "HOLD") return { confidence: "WEAK", score: 0 };
+  const scores = activeResults.map(r => {
+    if (!r.rules || r.rules.length === 0) return 0;
+    return r.rules.filter(x => x.pass).length / r.rules.length;
+  });
+  const score = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const onlyMACD = activeStrategies.length === 1 && activeStrategies[0] === "MACD";
+  const threshold = onlyMACD ? 0.85 : 0.75;
+  return { confidence: score >= threshold ? "STRONG" : "WEAK", score };
+}
+
 export function modeCombinedSignal(mode, inOrbWindow, results) {
   const [s1, s2, s3, s4] = results;
+  let signal, activeStrategies, activeResults, count, total;
 
   if (mode === "bullish" || mode === "bearish") {
     if (inOrbWindow) {
+      activeStrategies = ["ORB", "MACD"];
+      activeResults = [s4, s2];
+      total = 2;
       if (s4.signal !== "HOLD" && s4.signal === s2.signal) {
-        return { signal: s4.signal, mode, activeStrategies: ["ORB", "MACD"], count: 2, total: 2 };
+        signal = s4.signal; count = 2;
+      } else if (s2.signal !== "HOLD") {
+        signal = s2.signal; count = 1;
+      } else {
+        signal = "HOLD"; count = 0;
       }
-      if (s2.signal !== "HOLD") {
-        return { signal: s2.signal, mode, activeStrategies: ["ORB", "MACD"], count: 1, total: 2 };
-      }
-      return { signal: "HOLD", mode, activeStrategies: ["ORB", "MACD"], count: 0, total: 2 };
+    } else {
+      activeStrategies = ["MACD"];
+      activeResults = [s2];
+      total = 1;
+      signal = s2.signal !== "HOLD" ? s2.signal : "HOLD";
+      count = s2.signal !== "HOLD" ? 1 : 0;
     }
-    if (s2.signal !== "HOLD") {
-      return { signal: s2.signal, mode, activeStrategies: ["MACD"], count: 1, total: 1 };
+  } else {
+    // Sideways mode: only mean-reversion strategies are active regardless of ORB window.
+    // ORB (s4) and MACD (s2) are intentionally excluded — they add noise in flat markets.
+    activeStrategies = ["VWAP+EMA+RSI", "BB+RSI"];
+    activeResults = [s1, s3];
+    total = 2;
+    if (s1.signal !== "HOLD") {
+      signal = s1.signal; count = 1;
+    } else if (s3.signal !== "HOLD") {
+      signal = s3.signal; count = 1;
+    } else {
+      signal = "HOLD"; count = 0;
     }
-    return { signal: "HOLD", mode, activeStrategies: ["MACD"], count: 0, total: 1 };
   }
 
-  // Sideways mode: only mean-reversion strategies are active regardless of ORB window.
-  // ORB (s4) and MACD (s2) are intentionally excluded — they add noise in flat markets.
-  if (s1.signal !== "HOLD") {
-    return { signal: s1.signal, mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 1, total: 2 };
-  }
-  if (s3.signal !== "HOLD") {
-    return { signal: s3.signal, mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 1, total: 2 };
-  }
-  return { signal: "HOLD", mode, activeStrategies: ["VWAP+EMA+RSI", "BB+RSI"], count: 0, total: 2 };
+  const { confidence, score } = calcConfidence(signal, activeStrategies, activeResults);
+  return { signal, mode, activeStrategies, count, total, confidence, score };
 }
 
 
