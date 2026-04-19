@@ -1,5 +1,11 @@
 import { calcEMA, calcRSI, calcMACD, calcBollingerBands } from "./indicators.js";
 
+function checkOrbWindow(candle) {
+  const t = new Date(candle.time);
+  const utcMinutes = t.getUTCHours() * 60 + t.getUTCMinutes();
+  return utcMinutes >= 240 && utcMinutes <= 360;
+}
+
 function calcVWAP(candles) {
   if (candles.length === 0) return null;
   // Anchor to last candle's IST day so VWAP works after market hours / on weekends
@@ -173,9 +179,7 @@ export function orbStrategy(candles) {
   const { close, volume } = lastCandle;
 
   // Time window: 9:30–11:30 AM IST = 04:00–06:00 UTC
-  const t = new Date(lastCandle.time);
-  const utcMinutes = t.getUTCHours() * 60 + t.getUTCMinutes();
-  const inWindow = utcMinutes >= 240 && utcMinutes <= 360;
+  const inWindow = checkOrbWindow(lastCandle);
 
   const indicators = { price: close, orbHigh, orbLow, avgOrbVolume, vwap, rsi14 };
 

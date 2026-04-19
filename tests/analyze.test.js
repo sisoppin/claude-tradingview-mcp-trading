@@ -53,6 +53,12 @@ describe("modeCombinedSignal — trending + in ORB window", () => {
     const result = modeCombinedSignal("bullish", true, [BUY, HOLD, BUY, HOLD]);
     assert.equal(result.signal, "HOLD");
   });
+
+  test("BUY from MACD when ORB fires opposing SELL (MACD wins, count:1)", () => {
+    const result = modeCombinedSignal("bullish", true, [HOLD, BUY, HOLD, SELL]);
+    assert.equal(result.signal, "BUY");
+    assert.equal(result.count, 1);
+  });
 });
 
 describe("modeCombinedSignal — trending + outside ORB window", () => {
