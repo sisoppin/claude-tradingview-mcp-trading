@@ -1,0 +1,391 @@
+=== BATCH ANALYSIS RUN: Tue Apr 21 09:37:24 IST 2026 ===
+Symbols: BEL BHEL HAL HDFCBANK GRSE MAZDOCK TEJASNET KRRAIL APOLLO
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: BEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching BEL (BSE) data from Yahoo Finance...
+  611 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  BEL (BSE) — Strategy Analysis
+  2026-04-21T04:07:25.745Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹456.50
+  Market Mode   : BEARISH TREND
+  VWAP Slope    : -3.6470
+  EMA(8)        : ₹457.50
+  VWAP          : ₹457.63
+  RSI(3)        : 25.14
+  RSI(14)       : 31.37
+  MACD          : -1.1140 | Signal: -0.6351
+  BB Upper      : ₹465.41 | Lower: ₹454.56
+  ORB High      : ₹459.75
+  ORB Low       : ₹456.50
+  ORB RSI(14)   : 31.76
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    3/4 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    1/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    2/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [MACD]
+  Combined Signal                🟡 HOLD    0/1 agree
+  Confidence                     WEAK (0%)
+  Mode                           BEARISH TREND
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: BHEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching BHEL (BSE) data from Yahoo Finance...
+  611 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  BHEL (BSE) — Strategy Analysis
+  2026-04-21T04:07:27.359Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹325.00
+  Market Mode   : BULLISH TREND
+  VWAP Slope    : 7.6779
+  EMA(8)        : ₹324.43
+  VWAP          : ₹324.80
+  RSI(3)        : 55.08
+  RSI(14)       : 72.01
+  MACD          : 3.0655 | Signal: 2.9077
+  BB Upper      : ₹330.53 | Lower: ₹311.35
+  ORB High      : ₹326.25
+  ORB Low       : ₹322.50
+  ORB RSI(14)   : 73.59
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    3/4 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    1/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    2/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [MACD]
+  Combined Signal                🟡 HOLD    0/1 agree
+  Confidence                     WEAK (0%)
+  Mode                           BULLISH TREND
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: HAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching HAL (BSE) data from Yahoo Finance...
+  611 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  HAL (BSE) — Strategy Analysis
+  2026-04-21T04:07:29.258Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹4356.60
+  Market Mode   : BEARISH TREND
+  VWAP Slope    : -22.0879
+  EMA(8)        : ₹4355.82
+  VWAP          : ₹4359.90
+  RSI(3)        : 55.58
+  RSI(14)       : 44.05
+  MACD          : -7.2998 | Signal: -5.6811
+  BB Upper      : ₹4413.10 | Lower: ₹4328.37
+  ORB High      : ₹4378.50
+  ORB Low       : ₹4335.75
+  ORB RSI(14)   : 45.81
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    0/1 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    0/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    1/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [MACD]
+  Combined Signal                🟡 HOLD    0/1 agree
+  Confidence                     WEAK (0%)
+  Mode                           BEARISH TREND
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: HDFCBANK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching HDFCBANK (BSE) data from Yahoo Finance...
+  611 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  HDFCBANK (BSE) — Strategy Analysis
+  2026-04-21T04:07:31.196Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹801.05
+  Market Mode   : SIDEWAYS
+  VWAP Slope    : -0.0706
+  EMA(8)        : ₹798.69
+  VWAP          : ₹799.47
+  RSI(3)        : 83.74
+  RSI(14)       : 61.49
+  MACD          : -0.2534 | Signal: -0.6644
+  BB Upper      : ₹803.34 | Lower: ₹793.93
+  ORB High      : ₹802.20
+  ORB Low       : ₹795.50
+  ORB RSI(14)   : 63.54
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    3/4 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    0/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    2/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [VWAP+EMA+RSI, BB+RSI]
+  Combined Signal                🟡 HOLD    0/2 agree
+  Confidence                     WEAK (0%)
+  Mode                           SIDEWAYS
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: GRSE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching GRSE (BSE) data from Yahoo Finance...
+  611 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  GRSE (BSE) — Strategy Analysis
+  2026-04-21T04:07:32.615Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹2701.00
+  Market Mode   : BEARISH TREND
+  VWAP Slope    : -4.5147
+  EMA(8)        : ₹2692.17
+  VWAP          : ₹2703.86
+  RSI(3)        : 59.81
+  RSI(14)       : 55.83
+  MACD          : 3.0509 | Signal: 2.7744
+  BB Upper      : ₹2741.24 | Lower: ₹2651.75
+  ORB High      : ₹2724.00
+  ORB Low       : ₹2667.65
+  ORB RSI(14)   : 60.86
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    0/1 rules met
+  MACD Crossover                 🟢 BUY     1/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    0/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    2/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [MACD]
+  Combined Signal                🟡 HOLD    0/1 agree
+  Confidence                     WEAK (0%)
+  Mode                           BEARISH TREND
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: MAZDOCK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching MAZDOCK (BSE) data from Yahoo Finance...
+  611 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  MAZDOCK (BSE) — Strategy Analysis
+  2026-04-21T04:07:34.103Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹2651.65
+  Market Mode   : SIDEWAYS
+  VWAP Slope    : 34.7719
+  EMA(8)        : ₹2636.89
+  VWAP          : ₹2653.35
+  RSI(3)        : 81.45
+  RSI(14)       : 69.84
+  MACD          : 10.7693 | Signal: 8.2431
+  BB Upper      : ₹2651.73 | Lower: ₹2596.14
+  ORB High      : ₹2669.30
+  ORB Low       : ₹2638.40
+  ORB RSI(14)   : 71.41
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    0/1 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    1/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    2/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [VWAP+EMA+RSI, BB+RSI]
+  Combined Signal                🟡 HOLD    0/2 agree
+  Confidence                     WEAK (0%)
+  Mode                           SIDEWAYS
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: TEJASNET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching TEJASNET (BSE) data from Yahoo Finance...
+  609 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  TEJASNET (BSE) — Strategy Analysis
+  2026-04-21T04:07:35.493Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹409.50
+  Market Mode   : BEARISH TREND
+  VWAP Slope    : -11.5426
+  EMA(8)        : ₹412.90
+  VWAP          : ₹411.55
+  RSI(3)        : 9.26
+  RSI(14)       : 18.96
+  MACD          : -3.5878 | Signal: -2.5057
+  BB Upper      : ₹431.09 | Lower: ₹406.80
+  ORB High      : ₹416.20
+  ORB Low       : ₹409.20
+  ORB RSI(14)   : 19.09
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    3/4 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    1/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    2/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [MACD]
+  Combined Signal                🟡 HOLD    0/1 agree
+  Confidence                     WEAK (0%)
+  Mode                           BEARISH TREND
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: KRRAIL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching KRRAIL (BSE) data from Yahoo Finance...
+  425 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  KRRAIL (BSE) — Strategy Analysis
+  2026-04-21T04:07:36.803Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹32.39
+  Market Mode   : SIDEWAYS
+  VWAP Slope    : -0.2561
+  EMA(8)        : ₹32.62
+  VWAP          : ₹32.04
+  RSI(3)        : 19.99
+  RSI(14)       : 47.01
+  MACD          : 0.1194 | Signal: 0.1913
+  BB Upper      : ₹33.56 | Lower: ₹31.59
+  ORB High      : ₹32.46
+  ORB Low       : ₹31.20
+  ORB RSI(14)   : 47.23
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    0/1 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    0/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    1/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [VWAP+EMA+RSI, BB+RSI]
+  Combined Signal                🟡 HOLD    0/2 agree
+  Confidence                     WEAK (0%)
+  Mode                           SIDEWAYS
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYMBOL: APOLLO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fetching APOLLO (BSE) data from Yahoo Finance...
+  609 candles loaded (5m, 10d) [Yahoo Finance]
+  Last candle: 09:22 IST (15m ago)
+
+═══════════════════════════════════════════════════════════
+  APOLLO (BSE) — Strategy Analysis
+  2026-04-21T04:07:38.157Z
+═══════════════════════════════════════════════════════════
+
+  Current Price : ₹285.70
+  Market Mode   : SIDEWAYS
+  VWAP Slope    : 5.0168
+  EMA(8)        : ₹287.42
+  VWAP          : ₹288.24
+  RSI(3)        : 15.25
+  RSI(14)       : 54.19
+  MACD          : 2.6470 | Signal: 3.2036
+  BB Upper      : ₹292.04 | Lower: ₹279.69
+  ORB High      : ₹292.90
+  ORB Low       : ₹283.40
+  ORB RSI(14)   : 58.34
+
+─────────────────────────────────────────────────────────────
+  Strategy                       Signal     Rules
+─────────────────────────────────────────────────────────────
+  VWAP + EMA(8) + RSI(3)         🟡 HOLD    3/4 rules met
+  MACD Crossover                 🟡 HOLD    0/1 rules met
+  Bollinger Bands + RSI          🟡 HOLD    0/4 rules met
+  ORB 15min + RSI(14)            🟡 HOLD    2/10 rules met
+─────────────────────────────────────────────────────────────
+  Active Strategies              [VWAP+EMA+RSI, BB+RSI]
+  Combined Signal                🟡 HOLD    0/2 agree
+  Confidence                     WEAK (0%)
+  Mode                           SIDEWAYS
+═══════════════════════════════════════════════════════════
+
+  HTML report saved → report.html
+
+
+=== DONE ===
