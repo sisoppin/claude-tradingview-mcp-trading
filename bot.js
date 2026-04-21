@@ -27,8 +27,8 @@ function checkOnboarding() {
         "TRADINGSYMBOL=RELIANCE",
         "",
         "# Trading config",
-        "PORTFOLIO_VALUE_USD=1000",
-        "MAX_TRADE_SIZE_USD=100",
+        "PORTFOLIO_VALUE_INR=50000",
+        "MAX_TRADE_SIZE_INR=5000",
         "MAX_TRADES_PER_DAY=3",
         "PAPER_TRADING=true",
         "TIMEFRAME=5m",
@@ -58,8 +58,8 @@ const CONFIG = {
   exchange: process.env.EXCHANGE || "NSE",
   instrumentType: process.env.INSTRUMENT_TYPE || "equity",
   timeframe: process.env.TIMEFRAME || "5m",
-  portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_USD || "1000"),
-  maxTradeSizeUSD: parseFloat(process.env.MAX_TRADE_SIZE_USD || "100"),
+  portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_INR || "50000"),
+  maxTradeSizeINR: parseFloat(process.env.MAX_TRADE_SIZE_INR || "5000"),
   maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY || "3"),
   paperTrading: process.env.PAPER_TRADING !== "false",
 };
@@ -341,7 +341,7 @@ async function run() {
   const { results, allPass, side } = runSafetyCheck(price, ema8, vwap, rsi3, rules);
 
   // Position size
-  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeUSD);
+  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeINR);
 
   console.log("\n── Decision ─────────────────────────────────────────────\n");
 
@@ -363,7 +363,7 @@ async function run() {
     paperTrading: CONFIG.paperTrading,
     dataSource: source,
     limits: {
-      maxTradeSizeUSD: CONFIG.maxTradeSizeUSD,
+      maxTradeSizeINR: CONFIG.maxTradeSizeINR,
       maxTradesPerDay: CONFIG.maxTradesPerDay,
       tradesToday: countTodaysTrades(log),
     },
@@ -394,7 +394,7 @@ async function run() {
           tradingsymbol: CONFIG.tradingsymbol,
           exchange: CONFIG.exchange,
           side,
-          sizeUSD: tradeSize,
+          sizeINR: tradeSize,
           price,
           lotSize,
         });

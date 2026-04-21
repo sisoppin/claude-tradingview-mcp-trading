@@ -59,6 +59,11 @@ describe("modeCombinedSignal — trending + in ORB window", () => {
     assert.equal(result.signal, "BUY");
     assert.equal(result.count, 1);
   });
+
+  test("HOLD when MACD SELL in bullish mode during ORB window (counter-trend blocked)", () => {
+    const result = modeCombinedSignal("bullish", true, [HOLD, SELL, HOLD, HOLD]);
+    assert.equal(result.signal, "HOLD");
+  });
 });
 
 describe("modeCombinedSignal — trending + outside ORB window", () => {
@@ -71,6 +76,16 @@ describe("modeCombinedSignal — trending + outside ORB window", () => {
 
   test("HOLD when MACD HOLD (ignores other strategies)", () => {
     const result = modeCombinedSignal("bearish", false, [BUY, HOLD, BUY, BUY]);
+    assert.equal(result.signal, "HOLD");
+  });
+
+  test("HOLD when MACD SELL in bullish mode (counter-trend entry blocked)", () => {
+    const result = modeCombinedSignal("bullish", false, [HOLD, SELL, HOLD, HOLD]);
+    assert.equal(result.signal, "HOLD");
+  });
+
+  test("HOLD when MACD BUY in bearish mode (counter-trend entry blocked)", () => {
+    const result = modeCombinedSignal("bearish", false, [HOLD, BUY, HOLD, HOLD]);
     assert.equal(result.signal, "HOLD");
   });
 });
@@ -112,11 +127,11 @@ describe("modeCombinedSignal — confidence score", () => {
     };
   }
 
-  // results order: [s1=VWAP+EMA+RSI(4 rules), s2=MACD(2 rules), s3=BB+RSI(2 rules), s4=ORB(5 rules)]
+  // results order: [s1=VWAP+EMA+RSI(4 rules), s2=MACD(1 rule), s3=BB+RSI(2 rules), s4=ORB(5 rules)]
 
-  test("STRONG when trending+ORB: ORB 3/5 + MACD 2/2 → avg 0.80 ≥ 0.75", () => {
+  test("STRONG when trending+ORB: ORB 3/5 + MACD 1/1 → avg 0.80 ≥ 0.75", () => {
     const results = [
-      makeResult("HOLD", 0, 4), makeResult("BUY", 2, 2),
+      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 1),
       makeResult("HOLD", 0, 2), makeResult("BUY", 3, 5),
     ];
     const r = modeCombinedSignal("bullish", true, results);
@@ -124,28 +139,28 @@ describe("modeCombinedSignal — confidence score", () => {
     assert.ok(Math.abs(r.score - 0.8) < 0.01, `expected score ~0.80, got ${r.score}`);
   });
 
-  test("WEAK when trending+ORB: ORB 2/5 + MACD 1/2 → avg 0.45 < 0.75", () => {
+  test("WEAK when trending+ORB: ORB 2/5 + MACD 1/1 → avg 0.70 < 0.75", () => {
     const results = [
-      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 2),
+      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 1),
       makeResult("HOLD", 0, 2), makeResult("BUY", 2, 5),
     ];
     const r = modeCombinedSignal("bullish", true, results);
     assert.equal(r.confidence, "WEAK");
   });
 
-  test("STRONG when MACD-only: 1/2 rules pass → score 0.5 ≥ 0.5 (realistic MACD cross)", () => {
+  test("STRONG when MACD-only: 1/1 rule passes → score 1.0 ≥ 0.75 (crossover fired)", () => {
     const results = [
-      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 2),
+      makeResult("HOLD", 0, 4), makeResult("BUY", 1, 1),
       makeResult("HOLD", 0, 2), makeResult("HOLD", 0, 5),
     ];
     const r = modeCombinedSignal("bullish", false, results);
     assert.equal(r.confidence, "STRONG");
-    assert.ok(Math.abs(r.score - 0.5) < 0.01, `expected score 0.5, got ${r.score}`);
+    assert.ok(Math.abs(r.score - 1.0) < 0.01, `expected score 1.0, got ${r.score}`);
   });
 
-  test("WEAK when MACD-only: 0/2 rules pass → score 0 < 0.5", () => {
+  test("WEAK when MACD-only: 0/1 rules pass → score 0 < 0.75", () => {
     const results = [
-      makeResult("HOLD", 0, 4), makeResult("BUY", 0, 2),
+      makeResult("HOLD", 0, 4), makeResult("BUY", 0, 1),
       makeResult("HOLD", 0, 2), makeResult("HOLD", 0, 5),
     ];
     const r = modeCombinedSignal("bullish", false, results);
@@ -191,5 +206,75 @@ describe("modeCombinedSignal — confidence score", () => {
     assert.equal(r.signal, "HOLD");
     assert.equal(r.confidence, "WEAK");
     assert.equal(r.score, 0);
+  });
+
+  test("ORB bullish partial context boosts confidence 30 min after ORB close (decay=0.75)", () => {
+    // sideways BUY from VWAP with 3/4 rules → base score 0.75
+    const vwapBuy = makeResult("BUY", 3, 4);
+    const orbWithBreakout = {
+      signal: "HOLD",
+      rules: [
+        { label: "Close > ORB High",                  pass: true  },
+        { label: "Volume > 1.2× avg ORB volume",       pass: true  },
+        { label: "RSI(14) > 55 (bullish momentum)",    pass: true  },
+        { label: "Price > VWAP (bullish trend)",        pass: false },
+        { label: "Within ORB window (9:30–11:30 IST)", pass: false },
+      ],
+    };
+    const orbNoBreakout = {
+      signal: "HOLD",
+      rules: orbWithBreakout.rules.map((r) => ({ ...r, pass: false })),
+    };
+    // 12:00 PM IST = 06:30 UTC — 30 min after ORB close, decay should be 0.75
+    const thirtyMinAfterOrbClose = new Date("2026-04-18T06:30:00Z").getTime();
+    const withOrb    = modeCombinedSignal("sideways", false, [vwapBuy, HOLD, HOLD, orbWithBreakout], thirtyMinAfterOrbClose);
+    const withoutOrb = modeCombinedSignal("sideways", false, [vwapBuy, HOLD, HOLD, orbNoBreakout],   thirtyMinAfterOrbClose);
+    assert.ok(withOrb.score > withoutOrb.score,
+      `ORB context should boost score: ${withOrb.score} > ${withoutOrb.score}`);
+  });
+
+  test("ORB confidence boost decays to zero two hours after ORB window closes", () => {
+    const vwapBuy = makeResult("BUY", 3, 4);
+    const orbWithBreakout = {
+      signal: "HOLD",
+      rules: [
+        { label: "Close > ORB High",                  pass: true  },
+        { label: "Volume > 1.2× avg ORB volume",       pass: true  },
+        { label: "RSI(14) > 55 (bullish momentum)",    pass: true  },
+        { label: "Price > VWAP (bullish trend)",        pass: false },
+        { label: "Within ORB window (9:30–11:30 IST)", pass: false },
+      ],
+    };
+    // 13:30 IST = 08:00 UTC — exactly 2 hours after ORB close, decay = 0
+    const twoHoursAfterOrbClose = new Date("2026-04-18T08:00:00Z").getTime();
+    const result = modeCombinedSignal("sideways", false, [vwapBuy, HOLD, HOLD, orbWithBreakout], twoHoursAfterOrbClose);
+    assert.ok(Math.abs(result.score - 0.75) < 0.01,
+      `expected score 0.75 (no ORB influence), got ${result.score}`);
+  });
+});
+
+describe("modeCombinedSignal — VWAP context guard", () => {
+  test("HOLD when MACD BUY in bullish mode but price < VWAP (no structure)", () => {
+    const s1 = { signal: "HOLD", rules: [], indicators: { vwap: 100 } };
+    const s2 = { signal: "BUY",  rules: [{ label: "MACD crossover fired", pass: true }], indicators: { price: 95 } };
+    assert.equal(modeCombinedSignal("bullish", false, [s1, s2, HOLD, HOLD]).signal, "HOLD");
+  });
+
+  test("BUY when MACD BUY in bullish mode and price >= VWAP (valid structure)", () => {
+    const s1 = { signal: "HOLD", rules: [], indicators: { vwap: 100 } };
+    const s2 = { signal: "BUY",  rules: [{ label: "MACD crossover fired", pass: true }], indicators: { price: 105 } };
+    assert.equal(modeCombinedSignal("bullish", false, [s1, s2, HOLD, HOLD]).signal, "BUY");
+  });
+
+  test("HOLD when MACD SELL in bearish mode but price > VWAP (no structure)", () => {
+    const s1 = { signal: "HOLD", rules: [], indicators: { vwap: 100 } };
+    const s2 = { signal: "SELL", rules: [{ label: "MACD crossover fired", pass: true }], indicators: { price: 105 } };
+    assert.equal(modeCombinedSignal("bearish", false, [s1, s2, HOLD, HOLD]).signal, "HOLD");
+  });
+
+  test("SELL when MACD SELL in bearish mode and price <= VWAP (valid structure)", () => {
+    const s1 = { signal: "HOLD", rules: [], indicators: { vwap: 100 } };
+    const s2 = { signal: "SELL", rules: [{ label: "MACD crossover fired", pass: true }], indicators: { price: 95 } };
+    assert.equal(modeCombinedSignal("bearish", false, [s1, s2, HOLD, HOLD]).signal, "SELL");
   });
 });

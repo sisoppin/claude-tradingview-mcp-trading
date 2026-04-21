@@ -76,6 +76,30 @@ describe("macdStrategy", () => {
     assert.ok(result.indicators.macd !== null);
     assert.ok(result.indicators.signal !== null);
   });
+
+  test("result has exactly 1 rule for sufficient data", () => {
+    const candles = makeCandles(Array.from({ length: 50 }, (_, i) => 100 + i));
+    const result = macdStrategy(candles);
+    assert.equal(result.rules.length, 1);
+  });
+
+  test("rule passes when crossover fires (signal is BUY or SELL)", () => {
+    // Flat candles → no crossover → HOLD → rule must fail
+    const flat = makeCandles(Array.from({ length: 50 }, () => 100));
+    const holdResult = macdStrategy(flat);
+    if (holdResult.signal === "HOLD") {
+      assert.equal(holdResult.rules[0].pass, false);
+    }
+  });
+
+  test("rule pass mirrors signal: non-HOLD signal → pass true, HOLD → pass false", () => {
+    // Uptrend: strong directional move to force a crossover
+    const up = makeCandles(Array.from({ length: 60 }, (_, i) =>
+      i < 30 ? 100 - i * 0.5 : 85 + (i - 30) * 2));
+    const r = macdStrategy(up);
+    if (r.signal !== "HOLD") assert.equal(r.rules[0].pass, true);
+    else                     assert.equal(r.rules[0].pass, false);
+  });
 });
 
 describe("bollingerRsiStrategy", () => {

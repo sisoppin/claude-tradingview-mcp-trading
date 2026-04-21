@@ -12,7 +12,7 @@ function kiteHeaders(accessToken) {
 
 export async function placeZerodhaOrder(
   accessToken,
-  { tradingsymbol, exchange, side, sizeUSD, price, lotSize = 1 }
+  { tradingsymbol, exchange, side, sizeINR, price, lotSize = 1 }
 ) {
   if (!price || price <= 0 || !isFinite(price)) {
     throw new Error(`Invalid price ${price} for ${tradingsymbol}`);
@@ -25,18 +25,18 @@ export async function placeZerodhaOrder(
   let quantity;
 
   if (exchange === "NFO") {
-    const lots = Math.floor(sizeUSD / (price * lotSize));
+    const lots = Math.floor(sizeINR / (price * lotSize));
     if (lots < 1) {
       throw new Error(
-        `Trade size ${sizeUSD} too small for one lot of ${tradingsymbol} (needs ~${(price * lotSize).toFixed(2)})`
+        `Trade size ${sizeINR} too small for one lot of ${tradingsymbol} (needs ~${(price * lotSize).toFixed(2)})`
       );
     }
     quantity = lots * lotSize;
   } else {
-    quantity = Math.floor(sizeUSD / price);
+    quantity = Math.floor(sizeINR / price);
     if (quantity < 1) {
       throw new Error(
-        `Trade size ${sizeUSD} too small for one share of ${tradingsymbol} at ${price}`
+        `Trade size ${sizeINR} too small for one share of ${tradingsymbol} at ${price}`
       );
     }
   }

@@ -88,8 +88,7 @@ export function macdStrategy(candles) {
     && prevMacd > prevSignal && macd < signal;
 
   const rules = [
-    { label: "MACD line crossed above signal (bullish)", pass: bullishCross },
-    { label: "MACD line crossed below signal (bearish)", pass: bearishCross },
+    { label: "MACD crossover fired (bullish or bearish)", pass: bullishCross || bearishCross },
   ];
 
   const resultSignal = bullishCross ? "BUY" : bearishCross ? "SELL" : "HOLD";

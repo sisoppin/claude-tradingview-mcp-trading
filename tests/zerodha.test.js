@@ -11,12 +11,12 @@ describe("placeZerodhaOrder", () => {
       json: async () => ({ status: "success", data: { order_id: "EQ001" } }),
     }));
 
-    // price=100, sizeUSD=1000 → quantity = floor(1000/100) = 10
+    // price=100, sizeINR=1000 → quantity = floor(1000/100) = 10
     const result = await placeZerodhaOrder("token", {
       tradingsymbol: "SBIN",
       exchange: "NSE",
       side: "buy",
-      sizeUSD: 1000,
+      sizeINR: 1000,
       price: 100,
       lotSize: 1,
     });
@@ -26,13 +26,13 @@ describe("placeZerodhaOrder", () => {
   });
 
   test("throws when equity trade size too small for one share", async () => {
-    // price=2500, sizeUSD=10 → floor(10/2500) = 0 → throws
+    // price=2500, sizeINR=10 → floor(10/2500) = 0 → throws
     await assert.rejects(
       () => placeZerodhaOrder("token", {
         tradingsymbol: "RELIANCE",
         exchange: "NSE",
         side: "buy",
-        sizeUSD: 10,
+        sizeINR: 10,
         price: 2500,
         lotSize: 1,
       }),
@@ -48,12 +48,12 @@ describe("placeZerodhaOrder", () => {
       json: async () => ({ status: "success", data: { order_id: "FNO001" } }),
     }));
 
-    // price=100, lotSize=50, sizeUSD=10000 → lots=floor(10000/(100*50))=2 → qty=100
+    // price=100, lotSize=50, sizeINR=10000 → lots=floor(10000/(100*50))=2 → qty=100
     const result = await placeZerodhaOrder("token", {
       tradingsymbol: "NIFTY25MAYFUT",
       exchange: "NFO",
       side: "buy",
-      sizeUSD: 10000,
+      sizeINR: 10000,
       price: 100,
       lotSize: 50,
     });
@@ -63,13 +63,13 @@ describe("placeZerodhaOrder", () => {
   });
 
   test("throws when F&O trade size too small for one lot", async () => {
-    // price=22000, lotSize=75, sizeUSD=100 → floor(100/1650000) = 0 → throws
+    // price=22000, lotSize=75, sizeINR=100 → floor(100/1650000) = 0 → throws
     await assert.rejects(
       () => placeZerodhaOrder("token", {
         tradingsymbol: "NIFTY25MAYFUT",
         exchange: "NFO",
         side: "buy",
-        sizeUSD: 100,
+        sizeINR: 100,
         price: 22000,
         lotSize: 75,
       }),
@@ -90,7 +90,7 @@ describe("placeZerodhaOrder", () => {
         tradingsymbol: "SBIN",
         exchange: "NSE",
         side: "buy",
-        sizeUSD: 1000,
+        sizeINR: 1000,
         price: 100,
         lotSize: 1,
       }),
@@ -104,7 +104,7 @@ describe("placeZerodhaOrder", () => {
         tradingsymbol: "SBIN",
         exchange: "NSE",
         side: "long",
-        sizeUSD: 1000,
+        sizeINR: 1000,
         price: 100,
         lotSize: 1,
       }),
@@ -124,7 +124,7 @@ describe("placeZerodhaOrder", () => {
       tradingsymbol: "SBIN",
       exchange: "NSE",
       side: "sell",
-      sizeUSD: 1000,
+      sizeINR: 1000,
       price: 100,
       lotSize: 1,
     });

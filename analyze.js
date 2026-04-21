@@ -4,27 +4,100 @@ import { writeFileSync } from "fs";
 import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy, detectMarketMode } from "./strategies.js";
 
 const SYMBOL = process.env.TRADINGSYMBOL || "RELIANCE";
-const EXCHANGE = process.env.EXCHANGE || "BSE";
+const EXCHANGE = process.env.EXCHANGE || "NSE";
 const SUFFIX = EXCHANGE === "BSE" ? ".BO" : ".NS";
 const TICKER = `${SYMBOL}${SUFFIX}`;
+const KITE_BASE = "https://api.kite.trade";
 
-async function fetchCandles() {
-  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${TICKER}?interval=5m&range=10d`;
+async function fetchYahooCandles() {
+  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
+  let lastErr;
+  for (const host of hosts) {
+    const url = `https://${host}/v8/finance/chart/${TICKER}?interval=5m&range=10d&includePrePost=false`;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Accept": "application/json",
+          "Cache-Control": "no-cache",
+        },
+      });
+      if (!res.ok) throw new Error(`Yahoo Finance ${host} error: ${res.status}`);
+      const json = await res.json();
+      const result = json.chart?.result?.[0];
+      if (!result) throw new Error(`No data returned for ${TICKER} from ${host}`);
+      const timestamps = result.timestamp;
+      const q = result.indicators?.quote?.[0];
+      if (!timestamps || !q) throw new Error(`No OHLCV data from ${host}`);
+      return timestamps
+        .map((t, i) => ({
+          time: t * 1000,
+          open: q.open[i], high: q.high[i], low: q.low[i],
+          close: q.close[i], volume: q.volume[i],
+        }))
+        .filter((c) => c.close != null && c.open != null);
+    } catch (err) {
+      lastErr = err;
+      console.log(`  ⚠️  ${host} failed, trying next...`);
+    }
+  }
+  throw lastErr;
+}
+
+function checkDataFreshness(candles) {
+  const lastCandleMs = candles[candles.length - 1].time;
+  const ageMinutes = (Date.now() - lastCandleMs) / 60000;
+  const lastCandleIST = new Date(lastCandleMs + 5.5 * 60 * 60 * 1000).toISOString().slice(11, 16) + " IST";
+  const stale = ageMinutes > 20;
+  return { ageMinutes: Math.round(ageMinutes), lastCandleIST, stale };
+}
+
+async function fetchInstrumentToken() {
+  const res = await fetch(`${KITE_BASE}/instruments/${EXCHANGE}`);
+  if (!res.ok) throw new Error(`Kite instruments fetch failed: ${res.status}`);
+  const csv = await res.text();
+  for (const line of csv.split("\n").slice(1)) {
+    const cols = line.split(",");
+    // cols: instrument_token, exchange_token, tradingsymbol, name, ..., exchange (last)
+    if (cols[2] === SYMBOL && cols[cols.length - 1].trim() === EXCHANGE) {
+      return cols[0];
+    }
+  }
+  throw new Error(`Instrument token not found for ${SYMBOL} on ${EXCHANGE}`);
+}
+
+async function fetchKiteCandles(accessToken) {
+  const token = await fetchInstrumentToken();
+
+  const now = new Date();
+  const from = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
+  // Kite expects dates in IST (UTC+5:30)
+  const toIST = (d) => {
+    const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+    return ist.toISOString().replace("T", " ").slice(0, 19);
+  };
+
+  const url =
+    `${KITE_BASE}/instruments/historical/${token}/5minute` +
+    `?from=${encodeURIComponent(toIST(from))}&to=${encodeURIComponent(toIST(now))}`;
+
   const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0" },
+    headers: {
+      "X-Kite-Version": "3",
+      Authorization: `token ${process.env.KITE_API_KEY}:${accessToken}`,
+    },
   });
-  if (!res.ok) throw new Error(`Yahoo Finance error: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Kite historical data failed ${res.status}: ${body.slice(0, 200)}`);
+  }
   const json = await res.json();
-  const result = json.chart?.result?.[0];
-  if (!result) throw new Error(`No data returned for ${TICKER}`);
-  const timestamps = result.timestamp;
-  const q = result.indicators?.quote?.[0];
-  if (!timestamps || !q) throw new Error(`No OHLCV data returned for ${TICKER}`);
-  return timestamps
-    .map((t, i) => ({
-      time: t * 1000,
-      open: q.open[i], high: q.high[i], low: q.low[i],
-      close: q.close[i], volume: q.volume[i],
+  if (json.status !== "success") throw new Error(`Kite error: ${json.message}`);
+
+  return json.data.candles
+    .map(([time, open, high, low, close, volume]) => ({
+      time: new Date(time).getTime(),
+      open, high, low, close, volume,
     }))
     .filter((c) => c.close != null && c.open != null);
 }
@@ -41,31 +114,59 @@ export function isInOrbWindow(candles) {
   return utcMinutes >= 240 && utcMinutes <= 360;
 }
 
-function calcConfidence(signal, activeStrategies, activeResults) {
+function calcOrbDecay(nowMs) {
+  // ORB window closes at 11:30 AM IST = 06:00 UTC.
+  // Influence fades linearly to zero over the following 2 hours.
+  const d = new Date(nowMs);
+  const istMidnight = new Date(d);
+  istMidnight.setUTCHours(18, 30, 0, 0);
+  if (istMidnight > d) istMidnight.setUTCDate(istMidnight.getUTCDate() - 1);
+  const orbClose = new Date(istMidnight.getTime() + 11.5 * 60 * 60 * 1000); // 11:30 AM IST
+  const minutesSince = (nowMs - orbClose.getTime()) / 60000;
+  return Math.max(0, Math.min(1, 1 - minutesSince / 120));
+}
+
+function calcConfidence(signal, activeStrategies, activeResults, orbResult, orbDecay = 1) {
   if (signal === "HOLD") return { confidence: "WEAK", score: 0 };
   const scores = activeResults
     .filter(r => r.rules && r.rules.length > 0)
     .map(r => r.rules.filter(x => x.pass).length / r.rules.length);
   if (scores.length === 0) return { confidence: "WEAK", score: 0 };
-  const raw = scores.reduce((a, b) => a + b, 0) / scores.length;
+  let raw = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+  // ORB partial bias: when ORB is not already an active strategy, a partial ORB
+  // breakout in the same direction as the signal slightly boosts confidence.
+  // Decays to zero 2 hours after the ORB window closes (stale morning context).
+  if (orbDecay > 0 && !activeStrategies.includes("ORB") && orbResult?.rules?.length > 0) {
+    const orbBuyBreakout  = orbResult.rules.some(r => r.label === "Close > ORB High" && r.pass);
+    const orbSellBreakout = orbResult.rules.some(r => r.label === "Close < ORB Low"  && r.pass);
+    const aligned = (signal === "BUY" && orbBuyBreakout) || (signal === "SELL" && orbSellBreakout);
+    if (aligned) {
+      const orbBias = orbResult.rules.filter(x => x.pass).length / orbResult.rules.length;
+      raw = Math.min(1, raw * (1 + orbBias * 0.2 * orbDecay));
+    }
+  }
+
   const score = Math.round(raw * 100) / 100;
-  // MACD has 2 mutually exclusive rules (bullish XOR bearish cross), so max score is always 0.5.
-  // A score of 0.5 means the cross fired — that IS the full signal, so treat it as STRONG.
-  const onlyMACD = activeStrategies.length === 1 && activeStrategies[0] === "MACD";
-  const threshold = onlyMACD ? 0.5 : 0.75;
-  return { confidence: score >= threshold ? "STRONG" : "WEAK", score };
+  return { confidence: score >= 0.75 ? "STRONG" : "WEAK", score };
 }
 
-export function modeCombinedSignal(mode, inOrbWindow, results) {
+export function modeCombinedSignal(mode, inOrbWindow, results, nowMs = Date.now()) {
   const [s1, s2, s3, s4] = results;
   let signal, activeStrategies, activeResults, count, total;
 
   if (mode === "bullish" || mode === "bearish") {
+    // Trend-alignment: reject MACD signals that contradict the detected mode
+    const macdCounterTrend = (mode === "bullish" && s2.signal === "SELL") ||
+                              (mode === "bearish" && s2.signal === "BUY");
+
     if (inOrbWindow) {
       activeStrategies = ["ORB", "MACD"];
       activeResults = [s4, s2];
       total = 2;
-      if (s4.signal !== "HOLD" && s4.signal === s2.signal) {
+      if (macdCounterTrend) {
+        signal = "HOLD"; count = 0;
+      } else if (s4.signal !== "HOLD" && s4.signal === s2.signal) {
         signal = s4.signal; count = 2;
       } else if (s2.signal !== "HOLD") {
         signal = s2.signal; count = 1;
@@ -76,8 +177,18 @@ export function modeCombinedSignal(mode, inOrbWindow, results) {
       activeStrategies = ["MACD"];
       activeResults = [s2];
       total = 1;
-      signal = s2.signal !== "HOLD" ? s2.signal : "HOLD";
-      count = s2.signal !== "HOLD" ? 1 : 0;
+      const macdAligned = !macdCounterTrend && s2.signal !== "HOLD";
+      signal = macdAligned ? s2.signal : "HOLD";
+      count = macdAligned ? 1 : 0;
+    }
+
+    // VWAP context guard: price must be on the correct side of VWAP for structure
+    const vwap  = s1.indicators?.vwap;
+    const price = s2.indicators?.price;
+    if (vwap != null && price != null) {
+      const noStructure = (mode === "bullish" && signal === "BUY"  && price < vwap) ||
+                          (mode === "bearish" && signal === "SELL" && price > vwap);
+      if (noStructure) { signal = "HOLD"; count = 0; }
     }
   } else {
     // Sideways mode: only mean-reversion strategies are active regardless of ORB window.
@@ -94,7 +205,8 @@ export function modeCombinedSignal(mode, inOrbWindow, results) {
     }
   }
 
-  const { confidence, score } = calcConfidence(signal, activeStrategies, activeResults);
+  const orbDecay = calcOrbDecay(nowMs);
+  const { confidence, score } = calcConfidence(signal, activeStrategies, activeResults, s4, orbDecay);
   return { signal, mode, activeStrategies, count, total, confidence, score };
 }
 
@@ -141,10 +253,11 @@ function printTerminal(candles, results, combined, modeResult, now) {
   console.log(`  Active Strategies              [${combined.activeStrategies.join(", ")}]`);
   console.log(`  Combined Signal                ${signalIcon(combined.signal)} ${combined.signal.padEnd(6)}  ${combined.count}/${combined.total} agree`);
   console.log(`  Confidence                     ${combined.confidence} (${(combined.score * 100).toFixed(0)}%)`);
+  console.log(`  Mode                           ${modeLabel}`);
   console.log("═══════════════════════════════════════════════════════════\n");
 }
 
-function buildHtml(candles, results, combined, modeResult, now) {
+function buildHtml(candles, results, combined, modeResult, now, freshnessInfo = null) {
   const price = candles[candles.length - 1].close;
   const [s1, s2, s3, s4] = results;
   const fmt = (v, p = "₹") => v != null ? `${p}${Number(v).toFixed(2)}` : "N/A";
@@ -197,6 +310,9 @@ function buildHtml(candles, results, combined, modeResult, now) {
   <h1>${SYMBOL} <span style="color:#64748b;font-weight:400">(${EXCHANGE})</span></h1>
   <p class="subtitle">Strategy Analysis · ${now}</p>
   <div class="price">${fmt(price)}</div>
+  ${freshnessInfo ? `<div style="margin-top:12px;padding:8px 12px;border-radius:8px;font-size:0.85em;background:${freshnessInfo.stale ? "#fef3c7" : "#f0fdf4"};color:${freshnessInfo.stale ? "#92400e" : "#166534"};border:1px solid ${freshnessInfo.stale ? "#fcd34d" : "#86efac"}">
+    ${freshnessInfo.stale ? "⚠️" : "✅"} Last candle: ${freshnessInfo.lastCandleIST} · ${freshnessInfo.ageMinutes}m ago${freshnessInfo.stale ? " — Yahoo Finance cache delay; set KITE_ACCESS_TOKEN for real-time data" : ""}
+  </div>` : ""}
 </div>
 <div class="card">
   <h2 style="margin:0 0 16px">Indicators</h2>
@@ -234,9 +350,20 @@ function buildHtml(candles, results, combined, modeResult, now) {
 }
 
 async function run() {
-  console.log(`\nFetching ${SYMBOL} (${EXCHANGE}) data from Yahoo Finance...`);
-  const candles = await fetchCandles();
-  console.log(`  ${candles.length} candles loaded (5m, 10d)`);
+  const kiteToken = process.env.KITE_ACCESS_TOKEN;
+  let candles;
+  let freshnessInfo = null;
+  if (kiteToken) {
+    console.log(`\nFetching ${SYMBOL} (${EXCHANGE}) data from Kite Connect...`);
+    candles = await fetchKiteCandles(kiteToken);
+    console.log(`  ${candles.length} candles loaded (5m, 10d) [Kite Connect]`);
+  } else {
+    console.log(`\nFetching ${SYMBOL} (${EXCHANGE}) data from Yahoo Finance...`);
+    candles = await fetchYahooCandles();
+    freshnessInfo = checkDataFreshness(candles);
+    console.log(`  ${candles.length} candles loaded (5m, 10d) [Yahoo Finance]`);
+    console.log(`  Last candle: ${freshnessInfo.lastCandleIST} (${freshnessInfo.ageMinutes}m ago)${freshnessInfo.stale ? "  ⚠️  STALE DATA — Yahoo cache, consider Kite token for real-time" : ""}`);
+  }
 
   const s1 = vwapEmaRsiStrategy(candles);
   const s2 = macdStrategy(candles);
@@ -250,7 +377,7 @@ async function run() {
 
   printTerminal(candles, results, combined, modeResult, now);
 
-  const html = buildHtml(candles, results, combined, modeResult, now);
+  const html = buildHtml(candles, results, combined, modeResult, now, freshnessInfo);
   writeFileSync("report.html", html);
   console.log("  HTML report saved → report.html\n");
 }
