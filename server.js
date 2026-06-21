@@ -486,11 +486,11 @@ const server = createServer(async (req, res) => {
   res.end(JSON.stringify({ error: "Not found" }));
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n═══════════════════════════════════════════════════════════`);
   console.log(`  Zerodha Trading Dashboard`);
   console.log(`  http://localhost:${PORT}`);
   console.log(`  Mode: ${process.env.PAPER_TRADING !== "false" ? "📋 PAPER TRADING" : "🔴 LIVE TRADING"}`);
-  console.log(`  Symbol: ${process.env.TRADINGSYMBOL || "RELIANCE"} (${process.env.EXCHANGE || "NSE"})`);
+  console.log(`  Symbol: ${runtime.symbol} (${runtime.exchange})`);
   console.log(`═══════════════════════════════════════════════════════════\n`);
 });
