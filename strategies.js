@@ -209,19 +209,101 @@ export function detectMarketMode(candles) {
   if (candles.length < 4) {
     return { mode: "sideways", vwap: null, vwapSlope: null };
   }
-  // Note: calcVWAP filters to the current IST session; off-session candles
-  // will still produce null here and fall through to the null-VWAP guard below.
   const currentVWAP = calcVWAP(candles);
   const prevVWAP = calcVWAP(candles.slice(0, -3));
   if (!currentVWAP || !prevVWAP) {
     return { mode: "sideways", vwap: currentVWAP, vwapSlope: null };
   }
   const vwapSlope = currentVWAP - prevVWAP;
-  // vwapSlope is a raw price-unit difference (not %; used only for direction: > 0 or < 0)
   const price = candles[candles.length - 1].close;
   let mode;
   if (price > currentVWAP && vwapSlope > 0) mode = "bullish";
   else if (price < currentVWAP && vwapSlope < 0) mode = "bearish";
   else mode = "sideways";
   return { mode, vwap: currentVWAP, vwapSlope };
+}
+
+// ─── Pine Script #1: LargeCap VWAP+RSI Buy Signal (15min) ────────────────────
+
+const DEFAULT_LARGECAP_LIST = ["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK"];
+
+export function largeCapVwapRsiStrategy(candles, symbol = "", opts = {}) {
+  const rsiPeriod = opts.rsiPeriod || 14;
+  const rsiThreshold = opts.rsiThreshold || 60;
+  const largeCapList = opts.largeCapList || DEFAULT_LARGECAP_LIST;
+
+  const closes = candles.map(c => c.close);
+  const price = closes[closes.length - 1];
+  const vwap = calcVWAP(candles);
+  const rsi14 = calcRSI(closes, rsiPeriod);
+  const low = candles[candles.length - 1].low;
+
+  const indicators = { price, vwap, rsi14, low };
+
+  if (!vwap || rsi14 === null) {
+    return { signal: "HOLD", indicators, rules: [{ label: "Insufficient data", pass: false }] };
+  }
+
+  const isLargeCap = largeCapList.includes(symbol.toUpperCase());
+
+  const rules = [
+    { label: `Close > VWAP (${price.toFixed(2)} > ${vwap.toFixed(2)})`, pass: price > vwap },
+    { label: `Full candle above VWAP (low ${low.toFixed(2)} > ${vwap.toFixed(2)})`, pass: low > vwap },
+    { label: `RSI(${rsiPeriod}) > ${rsiThreshold} (actual: ${rsi14.toFixed(2)})`, pass: rsi14 > rsiThreshold },
+    { label: `Symbol in large-cap list`, pass: isLargeCap },
+  ];
+
+  // State machine: only fires on first bar where all conditions met
+  const signal = rules.every(r => r.pass) ? "BUY" : "HOLD";
+  return { signal, indicators, rules };
+}
+
+// ─── Pine Script #2: 5min EMA 20 Crossover Buy/Sell ──────────────────────────
+
+export function ema20CrossoverStrategy(candles) {
+  if (candles.length < 22) {
+    return {
+      signal: "HOLD",
+      indicators: { price: candles[candles.length-1]?.close || null, ema20: null },
+      rules: [{ label: "Need 22+ candles for EMA(20) + confirmation", pass: false }],
+    };
+  }
+
+  const closes = candles.map(c => c.close);
+  const price = closes[closes.length - 1];
+  const prevClose = closes[closes.length - 2];
+  const prevPrevClose = closes[closes.length - 3];
+
+  // EMA(20) for current, prev, and prev-prev bars
+  const ema20 = calcEMA(closes, 20);
+  const ema20Prev = calcEMA(closes.slice(0, -1), 20);
+  const ema20PrevPrev = calcEMA(closes.slice(0, -2), 20);
+
+  const indicators = { price, ema20, ema20Prev, prevClose, prevPrevClose };
+
+  if (!ema20 || !ema20Prev || !ema20PrevPrev) {
+    return { signal: "HOLD", indicators, rules: [{ label: "Insufficient data for EMA(20)", pass: false }] };
+  }
+
+  // Crossover: prev-prev candle was below EMA, prev candle crossed above EMA
+  const crossOver = prevPrevClose < ema20PrevPrev && prevClose > ema20Prev;
+  // Crossunder: prev-prev candle was above EMA, prev candle crossed below EMA
+  const crossUnder = prevPrevClose > ema20PrevPrev && prevClose < ema20Prev;
+
+  // Confirmation: current candle confirms direction
+  const buyConfirm = price > prevClose;
+  const sellConfirm = price < prevClose;
+
+  const buySignal = crossOver && buyConfirm;
+  const sellSignal = crossUnder && sellConfirm;
+
+  const rules = [
+    { label: `EMA(20) crossover detected (prev bar)`, pass: crossOver || crossUnder },
+    { label: `Prev close ${prevPrevClose.toFixed(2)} ${crossOver ? '<' : '>'} EMA ${ema20PrevPrev.toFixed(2)}`, pass: crossOver || crossUnder },
+    { label: `Prev close ${prevClose.toFixed(2)} crossed ${crossOver ? 'above' : 'below'} EMA ${ema20Prev.toFixed(2)}`, pass: crossOver || crossUnder },
+    { label: `Confirmation: current ${price.toFixed(2)} ${buySignal ? '>' : '<'} prev ${prevClose.toFixed(2)}`, pass: buySignal || sellSignal },
+  ];
+
+  const signal = buySignal ? "BUY" : sellSignal ? "SELL" : "HOLD";
+  return { signal, indicators, rules };
 }
