@@ -148,7 +148,13 @@
   <!-- Chart Tab -->
   <div id="tab-chart" class="tab">
     <div class="card">
-      <h2>Candlestick Chart <span id="chartSymbol" style="color:#94a3b8;font-size:0.85em"></span></h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin-bottom:0">Candlestick Chart <span id="chartSymbol" style="color:#94a3b8;font-size:0.85em"></span></h2>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="refreshChart()">🔄 Refresh</button>
+          <a href="https://www.tradingview.com/chart/?symbol=NSE:RELIANCE" target="_blank" class="btn" id="tvLink" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📺 TradingView</a>
+        </div>
+      </div>
       <div id="chartContainer" style="height:500px;border-radius:8px;overflow:hidden"></div>
       <div style="margin-top:12px;font-size:0.8em;color:#64748b">
         🟢 BUY signal &nbsp; 🔴 SELL signal &nbsp; <span style="color:#2962ff">──</span> EMA(20) &nbsp; <span style="color:#f5a623">──</span> VWAP
@@ -298,6 +304,9 @@ function showTab(name) {
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   event.target.classList.add('active');
+  if (name === 'chart' && pendingChartData) {
+    setTimeout(() => actuallyRenderChart(pendingChartData), 50);
+  }
 }
 
 function fmt(v, prefix = '₹') { return v != null ? prefix + Number(v).toFixed(2) : '--'; }
@@ -534,10 +543,22 @@ let candleSeries = null;
 let ema20Line = null;
 let vwapLine = null;
 
+let pendingChartData = null;
+
 function renderChart(data) {
   if (!data.candles || data.candles.length === 0) return;
+  pendingChartData = data;
   const container = document.getElementById('chartContainer');
+  // Defer render if tab is hidden (width=0) — will render on tab switch
+  if (container.clientWidth === 0) return;
+  actuallyRenderChart(data);
+}
+
+function actuallyRenderChart(data) {
+  const container = document.getElementById('chartContainer');
+  container.innerHTML = '';
   document.getElementById('chartSymbol').textContent = data.symbol + ' (' + data.exchange + ') ' + data.source;
+  document.getElementById('tvLink').href = 'https://www.tradingview.com/chart/?symbol=' + data.exchange + ':' + data.symbol;
 
   if (chart) { chart.remove(); chart = null; }
 
@@ -555,21 +576,29 @@ function renderChart(data) {
     wickUpColor: '#4ade80', wickDownColor: '#f87171',
   });
 
-  const candles = data.candles.map(c => ({ time: Math.floor(c.t / 1000), open: c.o, high: c.h, low: c.l, close: c.c }));
+  // Sort candles by time and deduplicate
+  const candleMap = new Map();
+  data.candles.forEach(c => {
+    const t = Math.floor(c.t / 1000);
+    candleMap.set(t, { time: t, open: c.o, high: c.h, low: c.l, close: c.c });
+  });
+  const candles = Array.from(candleMap.values()).sort((a, b) => a.time - b.time);
+
+  if (candles.length === 0) return;
   candleSeries.setData(candles);
 
   // EMA20 line
-  if (data.strategies.ema20Crossover.indicators.ema20) {
+  if (data.strategies.ema20Crossover && data.strategies.ema20Crossover.indicators.ema20) {
     ema20Line = chart.addLineSeries({ color: '#f5a623', lineWidth: 2, title: 'EMA20' });
     const ema20Data = computeEmaLine(data.candles, 20);
-    ema20Line.setData(ema20Data);
+    if (ema20Data.length > 0) ema20Line.setData(ema20Data);
   }
 
   // VWAP line
-  if (data.strategies.vwapEmaRsi.indicators.vwap) {
+  if (data.strategies.vwapEmaRsi && data.strategies.vwapEmaRsi.indicators.vwap) {
     vwapLine = chart.addLineSeries({ color: '#2962ff', lineWidth: 2, title: 'VWAP', lineStyle: 2 });
     const vwapData = computeVwapLine(data.candles);
-    vwapLine.setData(vwapData);
+    if (vwapData.length > 0) vwapLine.setData(vwapData);
   }
 
   // Buy/Sell markers from all strategies
@@ -577,12 +606,12 @@ function renderChart(data) {
   const lastCandle = candles[candles.length - 1];
   const strats = data.strategies;
   const signals = [
-    ['VWAP+RSI', strats.vwapEmaRsi.signal],
-    ['MACD', strats.macd.signal],
-    ['BB+RSI', strats.bollingerRsi.signal],
-    ['ORB', strats.orb.signal],
-    ['LC-VR', strats.largeCapVwapRsi.signal],
-    ['EMA20', strats.ema20Crossover.signal],
+    ['VWAP+RSI', strats.vwapEmaRsi?.signal],
+    ['MACD', strats.macd?.signal],
+    ['BB+RSI', strats.bollingerRsi?.signal],
+    ['ORB', strats.orb?.signal],
+    ['LC-VR', strats.largeCapVwapRsi?.signal],
+    ['EMA20', strats.ema20Crossover?.signal],
   ];
   for (const [name, sig] of signals) {
     if (sig === 'BUY') markers.push({ time: lastCandle.time, position: 'belowBar', color: '#4ade80', shape: 'arrowUp', text: name + ' BUY' });
@@ -594,30 +623,45 @@ function renderChart(data) {
   window.addEventListener('resize', () => { if (chart) chart.applyOptions({ width: container.clientWidth }); });
 }
 
+async function refreshChart() {
+  document.getElementById('chartContainer').innerHTML = '<div class="loading">Loading chart data...</div>';
+  await loadAnalysis();
+  if (pendingChartData) actuallyRenderChart(pendingChartData);
+}
+
 function computeEmaLine(candles, period) {
   const result = [];
   const mult = 2 / (period + 1);
   let ema = 0;
-  for (let i = 0; i < candles.length; i++) {
+  const sorted = [...candles].sort((a, b) => a.t - b.t);
+  for (let i = 0; i < sorted.length; i++) {
     if (i < period) {
-      ema += candles[i].c / period;
-      if (i === period - 1) result.push({ time: Math.floor(candles[i].t / 1000), value: ema });
+      ema += sorted[i].c / period;
+      if (i === period - 1) result.push({ time: Math.floor(sorted[i].t / 1000), value: ema });
     } else {
-      ema = candles[i].c * mult + ema * (1 - mult);
-      result.push({ time: Math.floor(candles[i].t / 1000), value: ema });
+      ema = sorted[i].c * mult + ema * (1 - mult);
+      result.push({ time: Math.floor(sorted[i].t / 1000), value: ema });
     }
   }
-  return result;
+  // Deduplicate by time
+  const map = new Map();
+  result.forEach(r => map.set(r.time, r));
+  return Array.from(map.values()).sort((a, b) => a.time - b.time);
 }
 
 function computeVwapLine(candles) {
   let cumTPV = 0, cumVol = 0;
-  return candles.map(c => {
+  const sorted = [...candles].sort((a, b) => a.t - b.t);
+  const result = sorted.map(c => {
     const tp = (c.h + c.l + c.c) / 3;
     cumTPV += tp * c.v;
     cumVol += c.v;
     return { time: Math.floor(c.t / 1000), value: cumVol > 0 ? cumTPV / cumVol : c.c };
   });
+  // Deduplicate by time
+  const map = new Map();
+  result.forEach(r => map.set(r.time, r));
+  return Array.from(map.values()).sort((a, b) => a.time - b.time);
 }
 
 // Claude AI

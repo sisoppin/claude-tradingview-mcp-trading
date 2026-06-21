@@ -225,7 +225,7 @@ export function detectMarketMode(candles) {
 
 // ─── Pine Script #1: LargeCap VWAP+RSI Buy Signal (15min) ────────────────────
 
-const DEFAULT_LARGECAP_LIST = ["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK"];
+const DEFAULT_LARGECAP_LIST = ["RELIANCE","TCS","OFSS","HDFCBANK","INFY","ICICIBANK"];
 
 export function largeCapVwapRsiStrategy(candles, symbol = "", opts = {}) {
   const rsiPeriod = opts.rsiPeriod || 14;
