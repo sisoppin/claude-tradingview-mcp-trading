@@ -1,106 +1,14 @@
 import "dotenv/config";
 import { fileURLToPath } from "url";
 import { writeFileSync } from "fs";
+import { loadToken } from "./kite-auth.js";
+import { fetchCandles, dropFormingCandle, checkFreshness } from "./market-data.js";
 import { vwapEmaRsiStrategy, macdStrategy, bollingerRsiStrategy, orbStrategy, detectMarketMode } from "./strategies.js";
 
 const SYMBOL = process.env.TRADINGSYMBOL || "RELIANCE";
 const EXCHANGE = process.env.EXCHANGE || "NSE";
-const SUFFIX = EXCHANGE === "BSE" ? ".BO" : ".NS";
-const TICKER = `${SYMBOL}${SUFFIX}`;
-const KITE_BASE = "https://api.kite.trade";
-
-async function fetchYahooCandles() {
-  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
-  let lastErr;
-  for (const host of hosts) {
-    const url = `https://${host}/v8/finance/chart/${TICKER}?interval=5m&range=10d&includePrePost=false`;
-    try {
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          "Accept": "application/json",
-          "Cache-Control": "no-cache",
-        },
-      });
-      if (!res.ok) throw new Error(`Yahoo Finance ${host} error: ${res.status}`);
-      const json = await res.json();
-      const result = json.chart?.result?.[0];
-      if (!result) throw new Error(`No data returned for ${TICKER} from ${host}`);
-      const timestamps = result.timestamp;
-      const q = result.indicators?.quote?.[0];
-      if (!timestamps || !q) throw new Error(`No OHLCV data from ${host}`);
-      return timestamps
-        .map((t, i) => ({
-          time: t * 1000,
-          open: q.open[i], high: q.high[i], low: q.low[i],
-          close: q.close[i], volume: q.volume[i],
-        }))
-        .filter((c) => c.close != null && c.open != null);
-    } catch (err) {
-      lastErr = err;
-      console.log(`  ⚠️  ${host} failed, trying next...`);
-    }
-  }
-  throw lastErr;
-}
-
-function checkDataFreshness(candles) {
-  const lastCandleMs = candles[candles.length - 1].time;
-  const ageMinutes = (Date.now() - lastCandleMs) / 60000;
-  const lastCandleIST = new Date(lastCandleMs + 5.5 * 60 * 60 * 1000).toISOString().slice(11, 16) + " IST";
-  const stale = ageMinutes > 20;
-  return { ageMinutes: Math.round(ageMinutes), lastCandleIST, stale };
-}
-
-async function fetchInstrumentToken() {
-  const res = await fetch(`${KITE_BASE}/instruments/${EXCHANGE}`);
-  if (!res.ok) throw new Error(`Kite instruments fetch failed: ${res.status}`);
-  const csv = await res.text();
-  for (const line of csv.split("\n").slice(1)) {
-    const cols = line.split(",");
-    // cols: instrument_token, exchange_token, tradingsymbol, name, ..., exchange (last)
-    if (cols[2] === SYMBOL && cols[cols.length - 1].trim() === EXCHANGE) {
-      return cols[0];
-    }
-  }
-  throw new Error(`Instrument token not found for ${SYMBOL} on ${EXCHANGE}`);
-}
-
-async function fetchKiteCandles(accessToken) {
-  const token = await fetchInstrumentToken();
-
-  const now = new Date();
-  const from = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
-  // Kite expects dates in IST (UTC+5:30)
-  const toIST = (d) => {
-    const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
-    return ist.toISOString().replace("T", " ").slice(0, 19);
-  };
-
-  const url =
-    `${KITE_BASE}/instruments/historical/${token}/5minute` +
-    `?from=${encodeURIComponent(toIST(from))}&to=${encodeURIComponent(toIST(now))}`;
-
-  const res = await fetch(url, {
-    headers: {
-      "X-Kite-Version": "3",
-      Authorization: `token ${process.env.KITE_API_KEY}:${accessToken}`,
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Kite historical data failed ${res.status}: ${body.slice(0, 200)}`);
-  }
-  const json = await res.json();
-  if (json.status !== "success") throw new Error(`Kite error: ${json.message}`);
-
-  return json.data.candles
-    .map(([time, open, high, low, close, volume]) => ({
-      time: new Date(time).getTime(),
-      open, high, low, close, volume,
-    }))
-    .filter((c) => c.close != null && c.open != null);
-}
+const INSTRUMENT_TYPE = process.env.INSTRUMENT_TYPE || "equity";
+const TIMEFRAME = process.env.TIMEFRAME || "5m";
 
 function signalIcon(signal) {
   if (signal === "BUY")  return "🟢";
@@ -210,6 +118,19 @@ export function modeCombinedSignal(mode, inOrbWindow, results, nowMs = Date.now(
   return { signal, mode, activeStrategies, count, total, confidence, score };
 }
 
+// The whole engine on closed candles: four strategies, market mode, routing
+// and confidence. bot.js trades on exactly this result.
+export function analyzeCandles(candles, nowMs = Date.now()) {
+  const s1 = vwapEmaRsiStrategy(candles);
+  const s2 = macdStrategy(candles);
+  const s3 = bollingerRsiStrategy(candles);
+  const s4 = orbStrategy(candles);
+  const results = [s1, s2, s3, s4];
+  const modeResult = detectMarketMode(candles);
+  const inOrbWindow = isInOrbWindow(candles);
+  const combined = modeCombinedSignal(modeResult.mode, inOrbWindow, results, nowMs);
+  return { results, modeResult, inOrbWindow, combined };
+}
 
 function printTerminal(candles, results, combined, modeResult, now) {
   const price  = candles[candles.length - 1].close;
@@ -311,7 +232,7 @@ function buildHtml(candles, results, combined, modeResult, now, freshnessInfo = 
   <p class="subtitle">Strategy Analysis · ${now}</p>
   <div class="price">${fmt(price)}</div>
   ${freshnessInfo ? `<div style="margin-top:12px;padding:8px 12px;border-radius:8px;font-size:0.85em;background:${freshnessInfo.stale ? "#fef3c7" : "#f0fdf4"};color:${freshnessInfo.stale ? "#92400e" : "#166534"};border:1px solid ${freshnessInfo.stale ? "#fcd34d" : "#86efac"}">
-    ${freshnessInfo.stale ? "⚠️" : "✅"} Last candle: ${freshnessInfo.lastCandleIST} · ${freshnessInfo.ageMinutes}m ago${freshnessInfo.stale ? " — Yahoo Finance cache delay; set KITE_ACCESS_TOKEN for real-time data" : ""}
+    ${freshnessInfo.stale ? "⚠️" : "✅"} Last candle: ${freshnessInfo.lastCandleIST} · ${freshnessInfo.ageMinutes}m ago${freshnessInfo.stale ? " — market closed or delayed feed; log in with node kite-auth.js for real-time Kite data" : ""}
   </div>` : ""}
 </div>
 <div class="card">
@@ -350,29 +271,16 @@ function buildHtml(candles, results, combined, modeResult, now, freshnessInfo = 
 }
 
 async function run() {
-  const kiteToken = process.env.KITE_ACCESS_TOKEN;
-  let candles;
-  let freshnessInfo = null;
-  if (kiteToken) {
-    console.log(`\nFetching ${SYMBOL} (${EXCHANGE}) data from Kite Connect...`);
-    candles = await fetchKiteCandles(kiteToken);
-    console.log(`  ${candles.length} candles loaded (5m, 10d) [Kite Connect]`);
-  } else {
-    console.log(`\nFetching ${SYMBOL} (${EXCHANGE}) data from Yahoo Finance...`);
-    candles = await fetchYahooCandles();
-    freshnessInfo = checkDataFreshness(candles);
-    console.log(`  ${candles.length} candles loaded (5m, 10d) [Yahoo Finance]`);
-    console.log(`  Last candle: ${freshnessInfo.lastCandleIST} (${freshnessInfo.ageMinutes}m ago)${freshnessInfo.stale ? "  ⚠️  STALE DATA — Yahoo cache, consider Kite token for real-time" : ""}`);
-  }
+  const token = loadToken();
+  console.log(`\nFetching ${SYMBOL} (${EXCHANGE}) ${TIMEFRAME} candles...`);
+  const { candles: raw, source } = await fetchCandles(token, SYMBOL, EXCHANGE, INSTRUMENT_TYPE, TIMEFRAME);
+  const candles = dropFormingCandle(raw, TIMEFRAME);
+  if (candles.length === 0) throw new Error(`No closed candles for ${SYMBOL}`);
+  const freshnessInfo = checkFreshness(candles, TIMEFRAME);
+  console.log(`  ${candles.length} closed candles loaded [${source}]`);
+  console.log(`  Last closed candle: ${freshnessInfo.lastCandleIST} (${freshnessInfo.ageMinutes}m ago)${freshnessInfo.stale ? "  ⚠️  STALE DATA" : ""}`);
 
-  const s1 = vwapEmaRsiStrategy(candles);
-  const s2 = macdStrategy(candles);
-  const s3 = bollingerRsiStrategy(candles);
-  const s4 = orbStrategy(candles);
-  const results = [s1, s2, s3, s4];
-  const modeResult = detectMarketMode(candles);
-  const inOrbWindow = isInOrbWindow(candles);
-  const combined = modeCombinedSignal(modeResult.mode, inOrbWindow, results);
+  const { results, modeResult, combined } = analyzeCandles(candles);
   const now = new Date().toISOString();
 
   printTerminal(candles, results, combined, modeResult, now);

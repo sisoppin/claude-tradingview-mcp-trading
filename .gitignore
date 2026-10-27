@@ -6,3 +6,8 @@ node_modules/
 *.log
 *.swp
 *.swo
+position.json
+*.tmp
+report.html
+batch_analysis_*.txt
+trades.csv

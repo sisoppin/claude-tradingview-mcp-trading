@@ -1,8 +1,15 @@
 import "dotenv/config";
 import { readFileSync, writeFileSync, existsSync } from "fs";
+import { fileURLToPath } from "url";
+import { createInterface } from "readline";
 import crypto from "crypto";
+import { statePath } from "./state.js";
 
 const KITE_BASE = "https://api.kite.trade";
+
+// The one place the access token is stored. bot.js and analyze.js both read it
+// through loadToken(), so it does not matter which one you run after logging in.
+export const TOKEN_FILE = "kite-token.json";
 
 function nextTokenExpiry() {
   // Kite tokens expire at 6 AM IST = 00:30 UTC
@@ -13,28 +20,32 @@ function nextTokenExpiry() {
   return expiry;
 }
 
-export function loadToken(tokenFile = "kite-token.json") {
-  if (!existsSync(tokenFile)) return null;
-  try {
-    const { access_token, expires_at } = JSON.parse(readFileSync(tokenFile, "utf8"));
-    if (new Date(expires_at) <= new Date()) return null;
-    return access_token;
-  } catch {
-    return null;
+// Token file first (it carries an expiry), then KITE_ACCESS_TOKEN for hosts
+// like Railway where you set the day's token as a variable instead.
+export function loadToken(tokenFile = statePath(TOKEN_FILE)) {
+  if (existsSync(tokenFile)) {
+    try {
+      const { access_token, expires_at } = JSON.parse(readFileSync(tokenFile, "utf8"));
+      if (access_token && new Date(expires_at) > new Date()) return access_token;
+    } catch {
+      // fall through to the environment variable
+    }
   }
+  return process.env.KITE_ACCESS_TOKEN || null;
+}
+
+export function loginUrl() {
+  return `https://kite.trade/connect/login?api_key=${process.env.KITE_API_KEY}&v=3`;
 }
 
 export function printLoginInstructions() {
-  const apiKey = process.env.KITE_API_KEY;
   console.log("\n⚠️  Kite access token expired or missing.\n");
-  console.log("Open this URL in your browser to log in:");
-  console.log(`  https://kite.trade/connect/login?api_key=${apiKey}&v=3\n`);
-  console.log("After login, run:");
-  console.log("  node kite-auth.js --token <request_token>\n");
+  console.log("Run: node kite-auth.js");
+  console.log(`  (or open ${loginUrl()} and run: node kite-auth.js --token <request_token>)\n`);
   console.log("Then re-run: node bot.js\n");
 }
 
-export async function exchangeToken(requestToken, tokenFile = "kite-token.json") {
+export async function exchangeToken(requestToken, tokenFile = statePath(TOKEN_FILE)) {
   const apiKey = process.env.KITE_API_KEY;
   const apiSecret = process.env.KITE_API_SECRET;
   if (!apiKey || !apiSecret) {
@@ -73,15 +84,36 @@ export async function exchangeToken(requestToken, tokenFile = "kite-token.json")
   return token.access_token;
 }
 
-// CLI: node kite-auth.js --token <request_token>
-if (process.argv[1]?.endsWith("kite-auth.js") && process.argv.includes("--token")) {
-  const idx = process.argv.indexOf("--token");
-  const requestToken = process.argv[idx + 1];
-  if (!requestToken) {
-    console.error("Usage: node kite-auth.js --token <request_token>");
+async function prompt(question) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => rl.question(question, (ans) => { rl.close(); resolve(ans.trim()); }));
+}
+
+// CLI:
+//   node kite-auth.js                     prints the login URL, asks for the request_token
+//   node kite-auth.js --token <token>     exchanges it directly
+async function main() {
+  if (!process.env.KITE_API_KEY || !process.env.KITE_API_SECRET) {
+    console.error("KITE_API_KEY and KITE_API_SECRET must be set in .env");
     process.exit(1);
   }
-  exchangeToken(requestToken).catch((err) => {
+  const idx = process.argv.indexOf("--token");
+  let requestToken = idx >= 0 ? process.argv[idx + 1] : null;
+  if (!requestToken) {
+    console.log("\nOpen this URL in your browser and log in:\n");
+    console.log(`  ${loginUrl()}\n`);
+    console.log("Kite redirects to your callback URL with ?request_token=XXXX — copy that value.\n");
+    requestToken = await prompt("Paste request_token here: ");
+  }
+  if (!requestToken) {
+    console.error("No request_token provided.");
+    process.exit(1);
+  }
+  await exchangeToken(requestToken);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
     console.error(err.message);
     process.exit(1);
   });

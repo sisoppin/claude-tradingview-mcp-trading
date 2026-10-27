@@ -1,9 +1,19 @@
 import "dotenv/config";
-import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
-import { execSync } from "child_process";
+import { readFileSync, writeFileSync, existsSync, appendFileSync, unlinkSync } from "fs";
+import { fileURLToPath } from "url";
 import { loadToken, printLoginInstructions } from "./kite-auth.js";
-import { isMarketOpen, fetchCandles } from "./market-data.js";
-import { placeZerodhaOrder } from "./zerodha.js";
+import {
+  isMarketOpen, fetchCandles, dropFormingCandle, checkFreshness, istMinutes, istDate, TIMEFRAME_MS,
+} from "./market-data.js";
+import {
+  placeZerodhaOrder, placeStopOrder, getOrder, cancelOrder, waitForFill, calcQuantity,
+} from "./zerodha.js";
+import { analyzeCandles } from "./analyze.js";
+import {
+  calcTradeSize, stopPrice, targetPrice, oppositeSide, strategyGroup, exitDecision, pnl,
+} from "./position.js";
+import { estimateCharges } from "./charges.js";
+import { statePath, readJson, writeJson } from "./state.js";
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
@@ -11,186 +21,77 @@ function checkOnboarding() {
   const required = ["KITE_API_KEY", "KITE_API_SECRET"];
   const missing = required.filter((k) => !process.env[k]);
 
-  if (!existsSync(".env")) {
-    console.log("\n⚠️  No .env file found — opening it for you to fill in...\n");
-    writeFileSync(
-      ".env",
-      [
-        "# Kite Connect credentials",
-        "KITE_API_KEY=",
-        "KITE_API_SECRET=",
-        "KITE_REDIRECT_URL=http://localhost:3000/callback",
-        "",
-        "# Instrument config (equity: NSE/BSE, futures/options: NFO)",
-        "INSTRUMENT_TYPE=equity",
-        "EXCHANGE=NSE",
-        "TRADINGSYMBOL=RELIANCE",
-        "",
-        "# Trading config",
-        "PORTFOLIO_VALUE_INR=50000",
-        "MAX_TRADE_SIZE_INR=5000",
-        "MAX_TRADES_PER_DAY=3",
-        "PAPER_TRADING=true",
-        "TIMEFRAME=5m",
-      ].join("\n") + "\n",
-    );
-    try { execSync("open .env"); } catch {}
+  if (!existsSync(".env") && missing.length > 0) {
+    writeFileSync(".env", readFileSync(new URL(".env.example", import.meta.url), "utf8"));
+    console.log("\n⚠️  No .env file found — created one from .env.example.");
     console.log("Fill in your Kite credentials in .env then re-run: node bot.js\n");
     process.exit(0);
   }
 
   if (missing.length > 0) {
     console.log(`\n⚠️  Missing credentials in .env: ${missing.join(", ")}`);
-    try { execSync("open .env"); } catch {}
     console.log("Add the missing values then re-run: node bot.js\n");
     process.exit(0);
   }
 
-  const csvPath = new URL("trades.csv", import.meta.url).pathname;
-  console.log(`\n📄 Trade log: ${csvPath}`);
+  console.log(`\n📄 Trade log: ${CSV_FILE}`);
   console.log(`   Open in Google Sheets or Excel any time.\n`);
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
+
+const num = (name, fallback) => {
+  const v = parseFloat(process.env[name] ?? fallback);
+  if (!isFinite(v)) throw new Error(`${name} must be a number, got "${process.env[name]}"`);
+  return v;
+};
 
 const CONFIG = {
   tradingsymbol: process.env.TRADINGSYMBOL || "RELIANCE",
   exchange: process.env.EXCHANGE || "NSE",
   instrumentType: process.env.INSTRUMENT_TYPE || "equity",
   timeframe: process.env.TIMEFRAME || "5m",
-  portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_INR || "50000"),
-  maxTradeSizeINR: parseFloat(process.env.MAX_TRADE_SIZE_INR || "5000"),
+  portfolioValue: num("PORTFOLIO_VALUE_INR", "50000"),
+  maxTradeSizeINR: num("MAX_TRADE_SIZE_INR", "5000"),
   maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY || "3"),
+  riskPerTradePct: num("RISK_PER_TRADE_PCT", "1"),
+  stopLossPct: num("STOP_LOSS_PCT", "0.3"),
+  targetPct: num("TARGET_PCT", "0.6"),
+  minConfidence: (process.env.MIN_CONFIDENCE || "STRONG").toUpperCase(),
+  allowShort: process.env.ALLOW_SHORT === "true",
+  entrySlippagePct: num("ENTRY_SLIPPAGE_PCT", "0.1"),
+  exitSlippagePct: num("EXIT_SLIPPAGE_PCT", "0.5"),
+  lastEntryMinutes: 15 * 60,       // no new positions from 15:00 IST
+  squareOffMinutes: 15 * 60 + 10,  // close everything at 15:10 IST, before Zerodha's ~15:20 auto square-off
   paperTrading: process.env.PAPER_TRADING !== "false",
 };
 
-const LOG_FILE = "safety-check-log.json";
+const LOG_FILE = statePath("safety-check-log.json");
+const POSITION_FILE = statePath("position.json");
+const CSV_FILE = statePath("trades.csv");
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
 function loadLog() {
-  if (!existsSync(LOG_FILE)) return { trades: [] };
-  return JSON.parse(readFileSync(LOG_FILE, "utf8"));
+  return readJson(LOG_FILE, { trades: [] });
 }
 
-function saveLog(log) {
-  writeFileSync(LOG_FILE, JSON.stringify(log, null, 2));
+function appendLog(entry) {
+  const log = loadLog();
+  log.trades.push(entry);
+  writeJson(LOG_FILE, log);
 }
 
-function countTodaysTrades(log) {
-  const today = new Date().toISOString().slice(0, 10);
+// Entries opened today (IST). Exits do not count against the daily cap.
+export function countTodaysTrades(log, now = new Date()) {
+  const today = istDate(now);
   return log.trades.filter(
-    (t) => t.timestamp.startsWith(today) && t.orderPlaced,
+    (t) => t.orderPlaced && t.type !== "exit" && istDate(new Date(t.timestamp)) === today,
   ).length;
-}
-
-// ─── Indicator Calculations ──────────────────────────────────────────────────
-
-function calcEMA(closes, period) {
-  const multiplier = 2 / (period + 1);
-  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < closes.length; i++) {
-    ema = closes[i] * multiplier + ema * (1 - multiplier);
-  }
-  return ema;
-}
-
-function calcRSI(closes, period = 14) {
-  if (closes.length < period + 1) return null;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff > 0) gains += diff;
-    else losses -= diff;
-  }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - 100 / (1 + rs);
-}
-
-function calcVWAP(candles) {
-  // NSE session starts at IST midnight (18:30 UTC previous day)
-  const now = new Date();
-  const istMidnight = new Date(now);
-  istMidnight.setUTCHours(18, 30, 0, 0);
-  if (istMidnight > now) istMidnight.setUTCDate(istMidnight.getUTCDate() - 1);
-  const sessionCandles = candles.filter((c) => c.time >= istMidnight.getTime());
-  if (sessionCandles.length === 0) return null;
-  const cumTPV = sessionCandles.reduce(
-    (sum, c) => sum + ((c.high + c.low + c.close) / 3) * c.volume, 0,
-  );
-  const cumVol = sessionCandles.reduce((sum, c) => sum + c.volume, 0);
-  return cumVol === 0 ? null : cumTPV / cumVol;
-}
-
-// ─── Safety Check ────────────────────────────────────────────────────────────
-
-function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
-  const results = [];
-  let side = null;
-
-  const check = (label, required, actual, pass) => {
-    results.push({ label, required, actual, pass });
-    const icon = pass ? "✅" : "🚫";
-    console.log(`  ${icon} ${label}`);
-    console.log(`     Required: ${required} | Actual: ${actual}`);
-  };
-
-  console.log("\n── Safety Check ─────────────────────────────────────────\n");
-
-  const bullishBias = price > vwap && price > ema8;
-  const bearishBias = price < vwap && price < ema8;
-
-  if (bullishBias) {
-    side = "buy";
-    console.log("  Bias: BULLISH — checking long entry conditions\n");
-
-    check("Price above VWAP (buyers in control)", `> ${vwap.toFixed(2)}`, price.toFixed(2), price > vwap);
-    check("Price above EMA(8) (uptrend confirmed)", `> ${ema8.toFixed(2)}`, price.toFixed(2), price > ema8);
-    check("RSI(3) below 30 (snap-back setup in uptrend)", "< 30", rsi3.toFixed(2), rsi3 < 30);
-
-    const distFromVWAP = Math.abs((price - vwap) / vwap) * 100;
-    check("Price within 1.5% of VWAP (not overextended)", "< 1.5%", `${distFromVWAP.toFixed(2)}%`, distFromVWAP < 1.5);
-  } else if (bearishBias) {
-    side = "sell";
-    console.log("  Bias: BEARISH — checking short entry conditions\n");
-
-    check("Price below VWAP (sellers in control)", `< ${vwap.toFixed(2)}`, price.toFixed(2), price < vwap);
-    check("Price below EMA(8) (downtrend confirmed)", `< ${ema8.toFixed(2)}`, price.toFixed(2), price < ema8);
-    check("RSI(3) above 70 (reversal setup in downtrend)", "> 70", rsi3.toFixed(2), rsi3 > 70);
-
-    const distFromVWAP = Math.abs((price - vwap) / vwap) * 100;
-    check("Price within 1.5% of VWAP (not overextended)", "< 1.5%", `${distFromVWAP.toFixed(2)}%`, distFromVWAP < 1.5);
-  } else {
-    console.log("  Bias: NEUTRAL — no clear direction. No trade.\n");
-    results.push({ label: "Market bias", required: "Bullish or bearish", actual: "Neutral", pass: false });
-  }
-
-  const allPass = results.every((r) => r.pass);
-  return { results, allPass, side };
-}
-
-// ─── Trade Limits ─────────────────────────────────────────────────────────────
-
-function checkTradeLimits(log) {
-  const todayCount = countTodaysTrades(log);
-
-  console.log("\n── Trade Limits ─────────────────────────────────────────\n");
-
-  if (todayCount >= CONFIG.maxTradesPerDay) {
-    console.log(`🚫 Max trades per day reached: ${todayCount}/${CONFIG.maxTradesPerDay}`);
-    return false;
-  }
-
-  console.log(`✅ Trades today: ${todayCount}/${CONFIG.maxTradesPerDay} — within limit`);
-  return true;
 }
 
 // ─── Tax CSV Logging ──────────────────────────────────────────────────────────
 
-const CSV_FILE = "trades.csv";
 const CSV_HEADERS = [
   "Date", "Time (UTC)", "Exchange", "Symbol", "Side", "Quantity",
   "Price", "Total", "Fee (est.)", "Net Amount", "Order ID", "Mode", "Notes",
@@ -203,43 +104,17 @@ function initCsv() {
   }
 }
 
-function writeTradeCsv(logEntry) {
-  const now = new Date(logEntry.timestamp);
-  const date = now.toISOString().slice(0, 10);
-  const time = now.toISOString().slice(11, 19);
-
-  let side = "", quantity = "", total = "", fee = "", netAmount = "", orderId = "", mode = "", notes = "";
-
-  if (!logEntry.allPass) {
-    const failed = logEntry.conditions.filter((c) => !c.pass).map((c) => c.label).join("; ");
-    mode = "BLOCKED";
-    orderId = "BLOCKED";
-    notes = `Failed: ${failed}`;
-  } else if (logEntry.paperTrading) {
-    side = (logEntry.side || "BUY").toUpperCase();
-    quantity = logEntry.orderQuantity != null ? String(logEntry.orderQuantity) : (logEntry.tradeSize / logEntry.price).toFixed(6);
-    total = logEntry.tradeSize.toFixed(2);
-    fee = (logEntry.tradeSize * 0.001).toFixed(4);
-    netAmount = (logEntry.tradeSize - parseFloat(fee)).toFixed(2);
-    orderId = logEntry.orderId || "";
-    mode = "PAPER";
-    notes = "All conditions met";
-  } else {
-    side = (logEntry.side || "BUY").toUpperCase();
-    quantity = logEntry.orderQuantity != null ? String(logEntry.orderQuantity) : (logEntry.tradeSize / logEntry.price).toFixed(6);
-    total = logEntry.tradeSize.toFixed(2);
-    fee = (logEntry.tradeSize * 0.001).toFixed(4);
-    netAmount = (logEntry.tradeSize - parseFloat(fee)).toFixed(2);
-    orderId = logEntry.orderId || "";
-    mode = "LIVE";
-    notes = logEntry.error ? `Error: ${logEntry.error}` : "All conditions met";
-  }
-
+// One row per executed order (entry or exit). Blocked checks stay in the JSON log.
+function writeTradeCsv({ side, quantity, price, orderId, notes }) {
+  const now = new Date();
+  const total = quantity * price;
+  const fee = estimateCharges(side, total);
+  const net = side === "buy" ? total + fee : total - fee;
   const row = [
-    date, time, "Zerodha", logEntry.symbol, side, quantity,
-    logEntry.price.toFixed(2), total, fee, netAmount, orderId, mode, `"${notes}"`,
+    now.toISOString().slice(0, 10), now.toISOString().slice(11, 19), "Zerodha", CONFIG.tradingsymbol,
+    side.toUpperCase(), quantity, price.toFixed(2), total.toFixed(2), fee.toFixed(2), net.toFixed(2),
+    orderId, CONFIG.paperTrading ? "PAPER" : "LIVE", `"${notes.replace(/"/g, "'")}"`,
   ].join(",");
-
   appendFileSync(CSV_FILE, row + "\n");
   console.log(`Tax record saved → ${CSV_FILE}`);
 }
@@ -255,20 +130,200 @@ function generateTaxSummary() {
 
   const live = rows.filter((r) => r[11] === "LIVE");
   const paper = rows.filter((r) => r[11] === "PAPER");
-  const blocked = rows.filter((r) => r[11] === "BLOCKED");
+  const blocked = loadLog().trades.filter((t) => t.type === "check" || (!t.type && !t.allPass)).length;
 
   const totalVolume = live.reduce((sum, r) => sum + parseFloat(r[7] || 0), 0);
   const totalFees = live.reduce((sum, r) => sum + parseFloat(r[8] || 0), 0);
 
   console.log("\n── Tax Summary ──────────────────────────────────────────\n");
-  console.log(`  Total decisions logged : ${rows.length}`);
-  console.log(`  Live trades executed   : ${live.length}`);
-  console.log(`  Paper trades           : ${paper.length}`);
-  console.log(`  Blocked by safety check: ${blocked.length}`);
-  console.log(`  Total volume           : ${totalVolume.toFixed(2)}`);
-  console.log(`  Total fees paid (est.) : ${totalFees.toFixed(4)}`);
+  console.log(`  Live orders executed   : ${live.length}`);
+  console.log(`  Paper orders           : ${paper.length}`);
+  console.log(`  Runs with no entry     : ${blocked}`);
+  console.log(`  Total volume           : ₹${totalVolume.toFixed(2)}`);
+  console.log(`  Total charges (est.)   : ₹${totalFees.toFixed(2)}`);
   console.log(`\n  Full record: ${CSV_FILE}`);
   console.log("─────────────────────────────────────────────────────────\n");
+}
+
+// ─── Entry decision ───────────────────────────────────────────────────────────
+
+// Every reason not to open a position now. Empty list = go.
+export function entryBlockers({ combined, fresh, tradesToday, minutes, config = CONFIG }) {
+  const reasons = [];
+  if (!fresh) reasons.push("Market data is stale (holiday, halt or delayed feed)");
+  if (tradesToday >= config.maxTradesPerDay) {
+    reasons.push(`Max trades per day reached: ${tradesToday}/${config.maxTradesPerDay}`);
+  }
+  if (minutes >= config.lastEntryMinutes) reasons.push("No new positions after 15:00 IST");
+  if (combined.signal === "HOLD") reasons.push(`No signal (mode ${combined.mode}, active: ${combined.activeStrategies.join(", ")})`);
+  if (combined.signal === "SELL" && !config.allowShort) reasons.push("SELL signal but short selling is off (ALLOW_SHORT=false)");
+  if (combined.signal !== "HOLD" && config.minConfidence === "STRONG" && combined.confidence !== "STRONG") {
+    reasons.push(`Confidence ${combined.confidence} (${Math.round(combined.score * 100)}%) below MIN_CONFIDENCE=STRONG`);
+  }
+  return reasons;
+}
+
+// ─── Position management ──────────────────────────────────────────────────────
+
+function savePosition(position) {
+  writeJson(POSITION_FILE, position);
+}
+
+function clearPosition() {
+  if (existsSync(POSITION_FILE)) unlinkSync(POSITION_FILE);
+}
+
+function recordExit(position, { exitPrice, reason, orderId }) {
+  const side = oppositeSide(position.side);
+  const profit = pnl(position, exitPrice);
+  console.log(`✅ CLOSED ${position.quantity} ${CONFIG.tradingsymbol} @ ₹${exitPrice.toFixed(2)} — ${reason} — P&L ₹${profit.toFixed(2)}`);
+  writeTradeCsv({ side, quantity: position.quantity, price: exitPrice, orderId, notes: `Exit: ${reason}; P&L ${profit.toFixed(2)}` });
+  appendLog({
+    type: "exit", timestamp: new Date().toISOString(), symbol: CONFIG.tradingsymbol, side,
+    quantity: position.quantity, entryPrice: position.entryPrice, exitPrice, reason, pnl: profit,
+    orderId, paperTrading: position.paper,
+  });
+  clearPosition();
+}
+
+async function closePosition(accessToken, position, reason, price) {
+  console.log(`\n🔻 EXIT — ${reason}`);
+
+  if (position.paper) {
+    const exitPrice = reason === "stop-loss hit" ? position.stopPrice
+      : reason === "target hit" ? position.targetPrice : price;
+    recordExit(position, { exitPrice, reason, orderId: `PAPER-${Date.now()}` });
+    return;
+  }
+
+  // Cancel the protective stop first so it cannot fire on top of the exit order.
+  if (position.stopOrderId) {
+    await cancelOrder(accessToken, position.stopOrderId).catch((err) =>
+      console.log(`  ⚠️  Could not cancel stop ${position.stopOrderId}: ${err.message}`));
+    const stop = await getOrder(accessToken, position.stopOrderId);
+    if (stop.status === "COMPLETE") {
+      recordExit(position, { exitPrice: stop.averagePrice, reason: "stop-loss hit", orderId: position.stopOrderId });
+      return;
+    }
+    if (stop.status !== "CANCELLED" && stop.status !== "REJECTED") {
+      // Still live: sending an exit now could double-sell (or double-buy) if the stop also fires.
+      console.log(`  ⚠️  Stop order is still ${stop.status}; not sending the exit. Will retry next run.`);
+      return;
+    }
+  }
+
+  const side = oppositeSide(position.side);
+  const exit = await placeZerodhaOrder(accessToken, {
+    tradingsymbol: CONFIG.tradingsymbol, exchange: CONFIG.exchange, side, price,
+    quantity: position.quantity, tickSize: position.tickSize, slippagePct: CONFIG.exitSlippagePct,
+  });
+  const fill = await waitForFill(accessToken, exit.orderId);
+
+  if (fill.filledQuantity >= position.quantity) {
+    recordExit(position, { exitPrice: fill.averagePrice, reason, orderId: exit.orderId });
+    return;
+  }
+
+  // Partly or not filled: keep what is left protected and retry on the next run.
+  const remaining = position.quantity - fill.filledQuantity;
+  console.log(`  ⚠️  Exit filled ${fill.filledQuantity}/${position.quantity}. Re-placing the stop for ${remaining}; will retry next run.`);
+  const stop = await placeStopOrder(accessToken, {
+    tradingsymbol: CONFIG.tradingsymbol, exchange: CONFIG.exchange, side, quantity: remaining,
+    triggerPrice: position.stopPrice, tickSize: position.tickSize,
+  });
+  savePosition({ ...position, quantity: remaining, stopOrderId: stop.orderId });
+}
+
+async function manageOpenPosition(accessToken, position, market) {
+  console.log("\n── Open position ────────────────────────────────────────\n");
+  console.log(`  ${position.side.toUpperCase()} ${position.quantity} @ ₹${position.entryPrice.toFixed(2)} | stop ₹${position.stopPrice.toFixed(2)} | target ₹${position.targetPrice.toFixed(2)} | ${position.group}`);
+
+  if (position.date !== istDate()) {
+    // An MIS position never survives the day: Zerodha squares it off.
+    console.log("  ⚠️  Position is from a previous session — Zerodha squared it off. Check your contract note.");
+    appendLog({ type: "exit", timestamp: new Date().toISOString(), symbol: CONFIG.tradingsymbol, reason: "stale position from a previous day cleared", paperTrading: position.paper });
+    clearPosition();
+    return;
+  }
+
+  if (!position.paper) {
+    const stop = await getOrder(accessToken, position.stopOrderId);
+    if (stop.status === "COMPLETE") {
+      recordExit(position, { exitPrice: stop.averagePrice, reason: "stop-loss hit", orderId: position.stopOrderId });
+      return;
+    }
+    if (stop.status === "CANCELLED" || stop.status === "REJECTED") {
+      await closePosition(accessToken, { ...position, stopOrderId: null }, `stop order ${stop.status.toLowerCase()} — closing unprotected position`, market.price);
+      return;
+    }
+  }
+
+  const decision = exitDecision(position, market, { squareOffMinutes: CONFIG.squareOffMinutes });
+  if (!decision.exit) {
+    console.log(`  Holding — ${decision.reason}`);
+    return;
+  }
+  await closePosition(accessToken, position, decision.reason, market.price);
+}
+
+async function openPosition(accessToken, { side, price, lotSize, tickSize, combined }) {
+  const tradeSize = calcTradeSize({
+    portfolioValue: CONFIG.portfolioValue, riskPct: CONFIG.riskPerTradePct,
+    stopPct: CONFIG.stopLossPct, maxTradeSize: CONFIG.maxTradeSizeINR,
+  });
+  const quantity = calcQuantity({
+    tradingsymbol: CONFIG.tradingsymbol, exchange: CONFIG.exchange, sizeINR: tradeSize, price, lotSize,
+  });
+  const group = strategyGroup(combined.activeStrategies);
+
+  let entryPrice = price, filled = quantity, entryOrderId = `PAPER-${Date.now()}`, stopOrderId = null;
+
+  if (CONFIG.paperTrading) {
+    console.log(`\n📋 PAPER TRADE — ${side.toUpperCase()} ${quantity} ${CONFIG.tradingsymbol} @ ₹${price.toFixed(2)} (₹${(quantity * price).toFixed(2)})`);
+    console.log(`   (Set PAPER_TRADING=false in .env to place real orders)`);
+  } else {
+    console.log(`\n🔴 PLACING LIVE ORDER — ${side.toUpperCase()} ${quantity} ${CONFIG.tradingsymbol} LIMIT ~₹${price.toFixed(2)}`);
+    const order = await placeZerodhaOrder(accessToken, {
+      tradingsymbol: CONFIG.tradingsymbol, exchange: CONFIG.exchange, side, price, quantity,
+      tickSize, slippagePct: CONFIG.entrySlippagePct,
+    });
+    entryOrderId = order.orderId;
+    const fill = await waitForFill(accessToken, order.orderId);
+    filled = fill.filledQuantity;
+    if (filled === 0) {
+      console.log(`  Entry not filled (${fill.status}) — cancelled. No position.`);
+      return { orderPlaced: false, orderId: entryOrderId, quantity: 0 };
+    }
+    entryPrice = fill.averagePrice;
+  }
+
+  const position = {
+    date: istDate(), entryTime: Date.now(), side, quantity: filled, entryPrice,
+    stopPrice: stopPrice(side, entryPrice, CONFIG.stopLossPct),
+    targetPrice: targetPrice(side, entryPrice, CONFIG.targetPct),
+    group, tickSize, entryOrderId, stopOrderId, paper: CONFIG.paperTrading,
+  };
+
+  writeTradeCsv({ side, quantity: filled, price: entryPrice, orderId: entryOrderId, notes: `Entry: ${combined.signal} ${combined.confidence} [${combined.activeStrategies.join(", ")}]` });
+
+  if (!CONFIG.paperTrading) {
+    try {
+      const stop = await placeStopOrder(accessToken, {
+        tradingsymbol: CONFIG.tradingsymbol, exchange: CONFIG.exchange, side: oppositeSide(side),
+        quantity: filled, triggerPrice: position.stopPrice, tickSize,
+      });
+      position.stopOrderId = stop.orderId;
+      console.log(`  🛡️  Stop placed: ${stop.orderId} trigger ₹${stop.triggerPrice}`);
+    } catch (err) {
+      console.log(`  ❌ Could not place stop (${err.message}) — closing the position now.`);
+      await closePosition(accessToken, position, "stop order could not be placed", entryPrice);
+      return { orderPlaced: true, orderId: entryOrderId, quantity: filled };
+    }
+  }
+
+  savePosition(position);
+  console.log(`  Position saved: stop ₹${position.stopPrice.toFixed(2)}, target ₹${position.targetPrice.toFixed(2)}`);
+  return { orderPlaced: true, orderId: entryOrderId, quantity: filled };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -282,143 +337,102 @@ async function run() {
   console.log(`  Mode: ${CONFIG.paperTrading ? "📋 PAPER TRADING" : "🔴 LIVE TRADING"}`);
   console.log("═══════════════════════════════════════════════════════════");
 
-  // Market hours check — exits cleanly outside NSE hours
   if (!isMarketOpen()) {
     console.log("\n🕒 Market is closed. NSE hours: 09:15–15:30 IST, Mon–Fri.");
     console.log("   No trade attempted.\n");
     return;
   }
 
-  // Token check — prints instructions and exits if expired
+  // Live trading needs Kite; paper trading can run on Yahoo data without a login.
   const accessToken = loadToken();
-  if (!accessToken) {
+  if (!accessToken && !CONFIG.paperTrading) {
     printLoginInstructions();
     process.exit(0);
   }
 
-  // Load strategy
-  const rules = JSON.parse(readFileSync("rules.json", "utf8"));
-  console.log(`\nStrategy: ${rules.strategy.name}`);
-  console.log(`Symbol: ${CONFIG.tradingsymbol} (${CONFIG.exchange}) | Timeframe: ${CONFIG.timeframe}`);
-
-  // Load log and check daily limits
-  const log = loadLog();
-  const withinLimits = checkTradeLimits(log);
-  if (!withinLimits) {
-    console.log("\nBot stopping — trade limits reached for today.");
-    return;
-  }
-
-  // Fetch market data
+  console.log(`\nSymbol: ${CONFIG.tradingsymbol} (${CONFIG.exchange}) | Timeframe: ${CONFIG.timeframe}`);
   console.log("\n── Fetching market data ────────────────────────────────\n");
-  const { candles, lotSize, source } = await fetchCandles(
-    accessToken,
-    CONFIG.tradingsymbol,
-    CONFIG.exchange,
-    CONFIG.instrumentType,
-    CONFIG.timeframe,
+  const { candles: raw, lotSize, tickSize, source } = await fetchCandles(
+    accessToken, CONFIG.tradingsymbol, CONFIG.exchange, CONFIG.instrumentType, CONFIG.timeframe,
   );
-  console.log(`  Data source: ${source}`);
+  if (raw.length === 0) throw new Error(`No candles returned for ${CONFIG.tradingsymbol}`);
 
-  const closes = candles.map((c) => c.close);
-  const price = closes[closes.length - 1];
+  // Latest traded price comes from the forming candle; signals only from closed ones.
+  const price = raw[raw.length - 1].close;
+  const candles = dropFormingCandle(raw, CONFIG.timeframe);
+  const freshness = checkFreshness(raw, CONFIG.timeframe);
+  console.log(`  Data source: ${source} | last candle ${freshness.lastCandleIST} (${freshness.ageMinutes}m ago)${freshness.stale ? " ⚠️ STALE" : ""}`);
   console.log(`  Current price: ₹${price.toFixed(2)}`);
 
-  const ema8 = calcEMA(closes, 8);
-  const vwap = calcVWAP(candles);
-  const rsi3 = calcRSI(closes, 3);
+  const { results, combined } = analyzeCandles(candles);
+  const rsi3 = results[0].indicators.rsi3;
+  console.log(`  Mode: ${combined.mode} | Active: ${combined.activeStrategies.join(", ")} | Signal: ${combined.signal} (${combined.confidence} ${Math.round(combined.score * 100)}%)`);
 
-  console.log(`  EMA(8):  ₹${ema8.toFixed(2)}`);
-  console.log(`  VWAP:    ${vwap ? `₹${vwap.toFixed(2)}` : "N/A"}`);
-  console.log(`  RSI(3):  ${rsi3 ? rsi3.toFixed(2) : "N/A"}`);
-
-  if (!vwap || !rsi3) {
-    console.log("\n⚠️  Not enough data to calculate indicators. Exiting.");
+  const minutes = istMinutes();
+  const position = readJson(POSITION_FILE);
+  if (position) {
+    const sinceEntry = raw.filter((c) => c.time + (TIMEFRAME_MS[CONFIG.timeframe] || 0) > position.entryTime);
+    await manageOpenPosition(accessToken, position, {
+      price,
+      low: Math.min(price, ...sinceEntry.map((c) => c.low)),
+      high: Math.max(price, ...sinceEntry.map((c) => c.high)),
+      rsi3,
+      signal: combined.signal,
+      istMinutes: minutes,
+      fresh: !freshness.stale,
+    });
+    console.log("═══════════════════════════════════════════════════════════\n");
     return;
   }
 
-  // Run safety check
-  const { results, allPass, side } = runSafetyCheck(price, ema8, vwap, rsi3, rules);
-
-  // Position size
-  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeINR);
+  const log = loadLog();
+  const tradesToday = countTodaysTrades(log);
+  const blockers = entryBlockers({ combined, fresh: !freshness.stale, tradesToday, minutes });
 
   console.log("\n── Decision ─────────────────────────────────────────────\n");
-
   const logEntry = {
+    type: "check",
     timestamp: new Date().toISOString(),
     symbol: CONFIG.tradingsymbol,
     exchange: CONFIG.exchange,
     timeframe: CONFIG.timeframe,
     price,
-    indicators: { ema8, vwap, rsi3 },
-    conditions: results,
-    allPass,
-    side,
-    tradeSize,
-    lotSize,
+    combined,
+    strategies: results.map((r) => ({ signal: r.signal, rules: r.rules })),
+    allPass: blockers.length === 0,
+    blockers,
     orderPlaced: false,
-    orderId: null,
-    orderQuantity: null,
     paperTrading: CONFIG.paperTrading,
     dataSource: source,
-    limits: {
-      maxTradeSizeINR: CONFIG.maxTradeSizeINR,
-      maxTradesPerDay: CONFIG.maxTradesPerDay,
-      tradesToday: countTodaysTrades(log),
-    },
+    limits: { maxTradeSizeINR: CONFIG.maxTradeSizeINR, maxTradesPerDay: CONFIG.maxTradesPerDay, tradesToday },
   };
 
-  if (!allPass) {
-    const failed = results.filter((r) => !r.pass).map((r) => r.label);
-    console.log(`🚫 TRADE BLOCKED`);
-    failed.forEach((f) => console.log(`   - ${f}`));
+  if (blockers.length > 0) {
+    console.log("🚫 NO ENTRY");
+    blockers.forEach((b) => console.log(`   - ${b}`));
   } else {
-    console.log(`✅ ALL CONDITIONS MET`);
-
-    if (CONFIG.paperTrading) {
-      console.log(`\n📋 PAPER TRADE — would ${side.toUpperCase()} ${CONFIG.tradingsymbol} ~₹${tradeSize.toFixed(2)} at market`);
-      console.log(`   (Set PAPER_TRADING=false in .env to place real orders)`);
-      logEntry.orderPlaced = true;
-      logEntry.orderId = `PAPER-${Date.now()}`;
-      if (CONFIG.exchange === "NFO") {
-        const lots = Math.floor(logEntry.tradeSize / (logEntry.price * logEntry.lotSize));
-        logEntry.orderQuantity = lots > 0 ? lots * logEntry.lotSize : 0;
-      } else {
-        logEntry.orderQuantity = Math.floor(logEntry.tradeSize / logEntry.price);
-      }
-    } else {
-      console.log(`\n🔴 PLACING LIVE ORDER — ₹${tradeSize.toFixed(2)} ${side.toUpperCase()} ${CONFIG.tradingsymbol}`);
-      try {
-        const order = await placeZerodhaOrder(accessToken, {
-          tradingsymbol: CONFIG.tradingsymbol,
-          exchange: CONFIG.exchange,
-          side,
-          sizeINR: tradeSize,
-          price,
-          lotSize,
-        });
-        logEntry.orderPlaced = true;
-        logEntry.orderId = order.orderId;
-        logEntry.orderQuantity = order.quantity;
-        console.log(`✅ ORDER PLACED — ${order.orderId} (qty: ${order.quantity})`);
-      } catch (err) {
-        console.log(`❌ ORDER FAILED — ${err.message}`);
-        logEntry.error = err.message;
-      }
+    console.log(`✅ ${combined.signal} — ${combined.confidence} (${Math.round(combined.score * 100)}%)`);
+    try {
+      const result = await openPosition(accessToken, {
+        side: combined.signal.toLowerCase(), price, lotSize, tickSize, combined,
+      });
+      Object.assign(logEntry, { type: "entry", side: combined.signal.toLowerCase() }, result);
+    } catch (err) {
+      console.log(`❌ ENTRY FAILED — ${err.message}`);
+      logEntry.error = err.message;
     }
   }
 
-  log.trades.push(logEntry);
-  saveLog(log);
+  appendLog(logEntry);
   console.log(`\nDecision log saved → ${LOG_FILE}`);
-  writeTradeCsv(logEntry);
   console.log("═══════════════════════════════════════════════════════════\n");
 }
 
-if (process.argv.includes("--tax-summary")) {
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (isMain && process.argv.includes("--tax-summary")) {
   generateTaxSummary();
-} else {
+} else if (isMain) {
   run().catch((err) => {
     console.error("Bot error:", err);
     process.exit(1);
